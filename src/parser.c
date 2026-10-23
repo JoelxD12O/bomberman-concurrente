@@ -1,5 +1,5 @@
 /*
- * parser.c — interpreta UNA línea de un archivo de movimientos (sección 6). Abigail.
+ * parser.c — interpreta UNA línea de un archivo de movimientos (sección 6). Joel.
  *
  * Lo usan P1 (bomber_moves.txt) y P2 (enemy_i_moves.txt).
  * Líneas desconocidas -> INS_INVALID: se descartan SIN consumir turno y se reportan.
@@ -12,7 +12,7 @@ instruction parse_instruction(const char *line)
 {
     instruction ins = { INS_INVALID, 0 };
 
-    /* TODO(Abigail):
+    /* TODO(Joel):
      *   - quitar '\n' / '\r' y espacios al final
      *   - comparar con "UP", "DOWN", "LEFT", "RIGHT", "BOMB"   (strcmp)
      *   - "SET_PRIORITY <n>" -> sscanf(line, "SET_PRIORITY %d", &ins.value)
