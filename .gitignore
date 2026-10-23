@@ -1,0 +1,14 @@
+# binarios generados por make
+bomberman
+bomberman_tsan
+ej1
+ej2
+*.o
+*.out
+
+# editores / sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
