@@ -18,7 +18,7 @@ int  load_map(shared_t *sh, const char *path);
 void print_map(shared_t *sh);
 int  is_walkable(shared_t *sh, int x, int y);  /* leer map_grid con map_mtx tomado */
 
-/* parser.c — Abigail (lo usan P1 y P2) */
+/* parser.c — Joel (lo usan P1 y P2) */
 typedef enum {
     INS_UP, INS_DOWN, INS_LEFT, INS_RIGHT,
     INS_BOMB, INS_SET_PRIORITY,

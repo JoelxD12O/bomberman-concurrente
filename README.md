@@ -26,8 +26,8 @@ es **lógica del juego en C normal** (como C++, sin clases), y eso lo podemos ha
 
 | Quién | Proceso | Archivos | En una frase |
 |---|---|---|---|
-| **Joel** | P0 — el "árbitro" | `src/scheduler.c`, `src/map.c` | Decide a quién le toca, cuenta vidas y puntaje, y dice cuándo termina el juego. También coordina la integración |
-| **Abigail** | P1 — Bomberman | `src/parser.c`, `src/bomber.c` (+ `src/renderer.c` bonus) | Lee los movimientos de Bomberman y lo mueve |
+| **Joel** | P0 — el "árbitro" + lector de instrucciones | `src/parser.c`, `src/scheduler.c`, `src/map.c` | Decide a quién le toca, cuenta vidas y puntaje, y dice cuándo termina el juego. Primero hace el parser (lo usan todos) y coordina la integración |
+| **Abigail** | P1 — Bomberman | `src/bomber.c` (+ `src/renderer.c` bonus) | Lee los movimientos de Bomberman y lo mueve |
 | **Mariel** | P2 — enemigos | `src/enemy.c` | Mueve a los 4 enemigos y detecta si tocan a Bomberman |
 | **Danilo** | P3 — bombas | `src/bomb.c` + `tests/` | Temporizadores, explosiones y daño. También arma los casos de prueba |
 
@@ -60,7 +60,7 @@ grep -n "TODO(Abigail)" src/*.c      # cambia el nombre por el tuyo
 
    | Quién | Secciones |
    |---|---|
-   | Joel | 4, 5, 9, 10, 11, 12 |
+   | Joel | 4, 5, 6, 9, 10, 11, 12 |
    | Abigail | 2.2, 6, 8.1, 10 |
    | Mariel | 2.3, 6 |
    | Danilo | 2.4, 7, 8 |
@@ -110,7 +110,8 @@ for (;;) {
 
 ## Semana 1: tarea de cada uno (primer avance)
 
-### Joel — P0 árbitro (`scheduler.c`, `map.c`)
+### Joel — P0 árbitro (`parser.c`, `scheduler.c`, `map.c`)
+- [ ] **Primero (día 1–2) `parser.c`**, porque Abigail y Mariel lo usan: `"LEFT"` → `INS_LEFT`, `"SET_PRIORITY 25"` → `INS_SET_PRIORITY` con valor 25, cualquier otra cosa → `INS_INVALID`. Subirlo a `main` apenas funcione y avisar al grupo.
 - [ ] `map.c`: validar el mapa (todas las filas del mismo largo, solo símbolos válidos, una P y una de cada A–D).
 - [ ] `choose_turn`: le toca al de **mayor** prioridad; si empatan, se alternan.
 - [ ] `process_priority_requests`: aplicar `SET_PRIORITY` si el valor está entre 1 y 49.
@@ -118,8 +119,8 @@ for (;;) {
 - [ ] `check_end`: victoria, derrota y "se acabaron los movimientos y no quedan bombas".
 - [ ] Coordinar: juntar las ramas de todos en `main` y revisar que compile.
 
-### Abigail — P1 Bomberman (`parser.c`, `bomber.c`)
-- [ ] **Primero (día 1–2) `parser.c`**, porque Mariel también lo usa: `"LEFT"` → `INS_LEFT`, `"SET_PRIORITY 25"` → `INS_SET_PRIORITY` con valor 25, cualquier otra cosa → `INS_INVALID`. Subirlo apenas funcione.
+### Abigail — P1 Bomberman (`bomber.c`)
+- [ ] `parse_instruction` la hace Joel en los primeros días. Mientras tanto puedes avanzar con `strcmp` directo.
 - [ ] `bomber.c`: abrir `bomber_moves.txt` y en cada turno leer **una** línea.
 - [ ] Mover: calcular la nueva celda y moverse solo si `is_walkable(sh, nx, ny)`. Si no se puede, se pierde el turno igual.
 - [ ] `BOMB`: escribir `bomb_request_x/y` y `bomb_request_active = 1` (**no** tocar el mapa).
@@ -132,7 +133,7 @@ for (;;) {
 - [ ] Después de moverlos: si algún enemigo vivo está en la celda de Bomberman → `collision_detected = 1`, `collision_tick`, `collision_enemy_id`.
 - [ ] `SET_PRIORITY` → `pending_priority_enemy`; si lo piden dos en el mismo turno, gana el de número mayor.
 - [ ] Cuando todos los vivos terminan su archivo → `enemy_moves_done = 1`.
-- [ ] Mientras Abigail termina el parser, puedes usar `strcmp` directo para avanzar.
+- [ ] Mientras Joel termina el parser, puedes usar `strcmp` directo para avanzar.
 
 ### Danilo — P3 bombas (`bomb.c`, `tests/`)
 - [ ] En cada turno, **en este orden**: (1) borrar el fuego `*` → `O`; (2) bajar el temporizador de cada bomba; (3) explotar las que llegan a 0; (4) atender la solicitud de bomba.
@@ -237,7 +238,7 @@ Cuando tu parte funcione:
 
 ### Paso 6 — Traer lo que subieron los demás
 
-Hazlo cada vez que alguien junte algo a `main` (por ejemplo, cuando Abigail suba el parser):
+Hazlo cada vez que alguien junte algo a `main` (por ejemplo, cuando Joel suba el parser):
 ```bash
 git checkout main
 git pull                      # traer lo nuevo de main
@@ -272,7 +273,7 @@ include/procs.h     funciones comunes
 src/main.c          arranque: crea la pizarra y los procesos (ya funciona, no tocar)
 src/scheduler.c     P0  Joel
 src/map.c           mapa  Joel
-src/parser.c        lector de instrucciones  Abigail
+src/parser.c        lector de instrucciones  Joel
 src/bomber.c        P1  Abigail
 src/enemy.c         P2  Mariel
 src/bomb.c          P3  Danilo
