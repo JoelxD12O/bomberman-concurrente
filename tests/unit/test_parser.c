@@ -13,10 +13,14 @@ static void check(const char *line, ins_type tipo, int valor)
     int ok = ins.type == tipo && (tipo != INS_SET_PRIORITY || ins.value == valor);
     if (!ok) fallos++;
     printf("%s  \"", ok ? "OK   " : "FALLA");
-    for (const char *c = line; *c; c++) {      /* mostrar \n y \r visibles */
-        if (*c == '\n') printf("\\n");
-        else if (*c == '\r') printf("\\r");
-        else putchar(*c);
+    for (int i = 0; line[i] != '\0'; i++) {    /* mostrar \n y \r como texto */
+        if (line[i] == '\n') {
+            printf("\\n");
+        } else if (line[i] == '\r') {
+            printf("\\r");
+        } else {
+            printf("%c", line[i]);
+        }
     }
     printf("\"\n");
 }
