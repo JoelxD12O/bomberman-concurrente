@@ -1,23 +1,26 @@
 /*
- * renderer.c — P4 renderer_process (BONUS, sección 3). Abigail cuando termine P1.
+ * renderer.c — P4: dibujar el juego en la terminal (BONUS, sección 3).
+ * Abigail, en la semana 3.
  *
- * Se activa con: ./bomberman <caso> <ticks> -r
- * P0 hace sem_post(&sem_render) al cierre de cada tick.
+ * Se activa con:  ./bomberman tests/caso_ejemplo 20 -r
+ * P0 lo despierta al final de cada tick.
  *
- * TODO(Abigail):
- *   - limpiar pantalla sin parpadeo: "\033[H" (cursor al inicio) en vez de borrar todo
- *   - colores ANSI por símbolo, mostrar bomb_timer[] encima de cada 'Q'
- *   - mostrar tick, vidas, score, prioridades
- *   - leer TODO con los mutex en el orden de shared.h
+ * TODO(Abigail), semana 3:
+ *   - dibujar el mapa con colores
+ *   - mostrar tick, vidas, puntaje y el temporizador de cada bomba
+ *   - que la pantalla no parpadee: printf("\033[H") vuelve el cursor arriba
+ *     a la izquierda y se dibuja encima, en vez de borrar la pantalla
  */
 #include <stdio.h>
 #include "procs.h"
 
 void run_renderer(shared_t *sh)
 {
-    for (;;) {
-        sem_wait(&sh->sem_render);
-        if (is_game_over(sh)) break;
+    while (1) {
+        sem_wait(&sh->sem_render);        // dormir hasta que P0 termine el tick
+        if (is_game_over(sh)) {
+            break;
+        }
         /* TODO(Abigail): dibujar aquí */
     }
 }

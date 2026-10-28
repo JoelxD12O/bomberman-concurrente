@@ -1,79 +1,67 @@
 /*
- * bomber.c — P1 bomber_process (secciones 2.2, 5, 8.1, 10). Abigail.
+ * bomber.c — P1: Bomberman (secciones 2.2, 6, 8.1 y 10). Abigail.
  *
- * ESTADO ACTUAL: stub. Espera su turno, no hace nada y avisa a P0.
+ * Lee bomber_moves.txt y, cada vez que P0 le da el turno, ejecuta UNA instrucción.
  *
- * META: 3 hilos.
- *   movement_reader_thread    lee bomber_moves.txt y mete instrucciones en una cola
+ * Reglas:
+ *   - P1 NO escribe en el mapa. Para poner una bomba deja un pedido
+ *     (bomb_request_...) y P3 es quien la pone.
+ *   - SET_PRIORITY no cambia la prioridad: deja un pedido para P0
+ *     (pending_priority_bomber).
+ *   - Si la celda de destino está ocupada, Bomberman no se mueve pero
+ *     IGUAL gasta el turno.
+ *   - Una línea que no se entiende se salta y se lee la siguiente
+ *     (eso NO gasta el turno).
+ *
+ * SEMANA 1: escribir la lógica dentro del while de abajo (sin hilos, sin mutex).
+ * SEMANA 2: dividirla en 3 hilos:
+ *   movement_reader_thread    lee el archivo y guarda las instrucciones en una cola
  *   movement_executor_thread  en cada turno saca UNA instrucción y la ejecuta
- *   bomber_publisher_thread   publica bomber_x/bomber_y en memoria compartida
- *
- * Reglas que hay que cumplir:
- *   - P1 NUNCA escribe map_grid. Para BOMB escribe el buzón bomb_request_* (bomb_req_mtx).
- *   - SET_PRIORITY no cambia la prioridad: escribe el buzón pending_priority_bomber (prio_mtx).
- *   - Un movimiento inválido (pared, bloque, bomba, fuego, fuera del mapa) TAMBIÉN consume turno.
- *   - Línea desconocida: se descarta y se lee la siguiente en el mismo turno.
- *   - Si se acaba el archivo: bomber_moves_done = 1.
+ *   bomber_publisher_thread   copia la posición de Bomberman a la memoria compartida
  */
 #include <stdio.h>
 #include "procs.h"
 
-/* ---- Cola interna de P1 (solo la ven los hilos de este proceso) ----
- * TODO(Abigail): buffer circular + pthread_mutex_t + sem_t "items disponibles".
- *          Es el problema productor-consumidor clásico. */
-
-__attribute__((unused))
-static void *movement_reader_thread(void *arg)
-{
-    shared_t *sh = arg;
-    /* TODO(Abigail): abrir <data_dir>/bomber_moves.txt, por cada línea:
-     *          parse_instruction -> encolar -> sem_post(items). Al final, marcar EOF. */
-    (void)sh;
-    return NULL;
-}
-
-__attribute__((unused))
-static void *movement_executor_thread(void *arg)
-{
-    shared_t *sh = arg;
-    /* TODO(Abigail): loop {
-     *   sem_wait(&sh->sem_bomber_turn); if (is_game_over(sh)) break;
-     *   sacar instrucción; mover (validar con is_walkable bajo map_mtx) / BOMB / SET_PRIORITY
-     *   avisar al publisher
-     *   sem_post(&sh->sem_turn_done);
-     * } */
-    (void)sh;
-    return NULL;
-}
-
-__attribute__((unused))
-static void *bomber_publisher_thread(void *arg)
-{
-    shared_t *sh = arg;
-    /* TODO(Abigail): cuando el executor actualice la posición local, copiarla a
-     *          sh->bomber_x / sh->bomber_y con bomber_mtx tomado. */
-    (void)sh;
-    return NULL;
-}
-
 void run_bomber(shared_t *sh)
 {
-    /* SEMANA 1: abrir bomber_moves.txt aquí (antes del for). */
+    /* SEMANA 1 — TODO(Abigail): abrir el archivo aquí, antes del while:
+     *
+     *   char ruta[300];
+     *   snprintf(ruta, sizeof(ruta), "%s/bomber_moves.txt", sh->data_dir);
+     *   FILE *archivo = fopen(ruta, "r");
+     */
 
-    /* SEMANA 2 — TODO(Abigail): reemplazar este stub por pthread_create de los 3 hilos + pthread_join. */
-    for (;;) {
-        sem_wait(&sh->sem_bomber_turn);          /* NO TOCAR: espera su turno */
-        if (is_game_over(sh)) break;             /* NO TOCAR */
-        printf("[P1] turno en tick %d (stub)\n", sh->global_tick);
+    while (1) {
+        sem_wait(&sh->sem_bomber_turn);   // NO TOCAR: dormir hasta que P0 dé el turno
+        if (is_game_over(sh)) {           // NO TOCAR: si el juego terminó, salir
+            break;
+        }
 
-        /* >>> SEMANA 1 — TODO(Abigail): tu lógica va AQUÍ, sin hilos <<<
-         *   leer UNA línea -> parse_instruction
-         *   UP/DOWN/LEFT/RIGHT: si is_walkable(nueva celda) -> sh->bomber_x / sh->bomber_y
-         *   BOMB: sh->bomb_request_x/y = posición actual; sh->bomb_request_active = 1
-         *   SET_PRIORITY: sh->pending_priority_bomber = valor; sh->priority_request_active = 1
-         *   línea inválida: imprimir aviso y leer la siguiente (no gasta el turno)
-         *   fin de archivo: sh->bomber_moves_done = 1 */
+        printf("[P1] turno en el tick %d\n", sh->global_tick);
 
-        sem_post(&sh->sem_turn_done);            /* NO TOCAR: avisa "terminé" */
+        /* >>> SEMANA 1 — TODO(Abigail): tu código va AQUÍ <<<
+         *
+         * 1. Leer una línea:   char linea[64];  fgets(linea, sizeof(linea), archivo)
+         *    Si fgets devuelve NULL se acabó el archivo:  sh->bomber_moves_done = 1;
+         *
+         * 2. Entender la línea:   instruction ins = parse_instruction(linea);
+         *
+         * 3. Hacer lo que dice ins.type:
+         *    INS_UP / INS_DOWN / INS_LEFT / INS_RIGHT:
+         *        calcular la celda nueva (nx, ny). OJO: y crece hacia ABAJO,
+         *        así que UP es y - 1 y DOWN es y + 1.
+         *        if (is_walkable(sh, nx, ny))  { sh->bomber_x = nx; sh->bomber_y = ny; }
+         *    INS_BOMB:
+         *        sh->bomb_request_x = sh->bomber_x;
+         *        sh->bomb_request_y = sh->bomber_y;
+         *        sh->bomb_request_active = 1;
+         *    INS_SET_PRIORITY:
+         *        sh->pending_priority_bomber = ins.value;
+         *        sh->priority_request_active = 1;
+         *    INS_INVALID:
+         *        printf un aviso y volver al paso 1 (leer otra línea)
+         */
+
+        sem_post(&sh->sem_turn_done);     // NO TOCAR: avisar a P0 "terminé mi turno"
     }
 }
