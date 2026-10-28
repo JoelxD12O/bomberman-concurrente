@@ -1,12 +1,18 @@
 /*
  * map.c — lectura del mapa (sección 7). Joel.
  *
- * Ya hace lo mínimo: lee map.txt, guarda dimensiones, ubica P y A..D y
+ * Lee map.txt, valida dimensiones y símbolos, ubica P y A..D y
  * deja esas celdas como 'O'.
  */
 #include <stdio.h>
 #include <string.h>
 #include "procs.h"
+
+static int is_valid_symbol(char c)
+{
+    return c == CELL_WALL || c == CELL_BLOCK || c == CELL_FREE ||
+           c == 'P' || (c >= 'A' && c <= 'D');
+}
 
 int load_map(shared_t *sh, const char *path)
 {
@@ -15,23 +21,45 @@ int load_map(shared_t *sh, const char *path)
 
     char line[MAX_X + 8];
     int y = 0;
-    while (fgets(line, sizeof(line), f) && y < MAX_Y) {
+    int bombers = 0;
+    int enemies[NUM_ENEMIES] = { 0 };
+
+    while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\r\n")] = '\0';
         int len = (int)strlen(line);
         if (len == 0) continue;
+
+        if (y >= MAX_Y) {
+            fprintf(stderr, "mapa: más de %d filas\n", MAX_Y);
+            fclose(f);
+            return -1;
+        }
+        if (len > MAX_X) {
+            fprintf(stderr, "mapa: fila %d tiene más de %d columnas\n", y, MAX_X);
+            fclose(f);
+            return -1;
+        }
         if (y == 0) sh->cols = len;
+        if (len != sh->cols) {
+            fprintf(stderr, "mapa: fila %d mide %d, se esperaba %d\n", y, len, sh->cols);
+            fclose(f);
+            return -1;
+        }
 
-        /* TODO(Joel): validar que todas las filas tengan el mismo largo (sh->cols)
-         *          y que solo aparezcan los símbolos X # O P A B C D.
-         *          Si algo falla: fclose(f) y return -1. */
-
-        for (int x = 0; x < len && x < MAX_X; x++) {
+        for (int x = 0; x < len; x++) {
             char c = line[x];
+            if (!is_valid_symbol(c)) {
+                fprintf(stderr, "mapa: símbolo '%c' inválido en (%d, %d)\n", c, x, y);
+                fclose(f);
+                return -1;
+            }
             if (c == 'P') {
                 sh->bomber_x = x; sh->bomber_y = y; c = CELL_FREE;
+                bombers++;
             } else if (c >= 'A' && c <= 'D') {
                 int i = c - 'A';
                 sh->enemy_x[i] = x; sh->enemy_y[i] = y; c = CELL_FREE;
+                enemies[i]++;
             }
             sh->map_grid[y][x] = c;
         }
@@ -40,7 +68,20 @@ int load_map(shared_t *sh, const char *path)
     fclose(f);
     sh->rows = y;
 
-    /* TODO(Joel): validar que exista exactamente una P y una de cada A..D. */
+    if (sh->rows == 0) {
+        fprintf(stderr, "mapa: archivo vacío\n");
+        return -1;
+    }
+    if (bombers != 1) {
+        fprintf(stderr, "mapa: debe haber exactamente una P (hay %d)\n", bombers);
+        return -1;
+    }
+    for (int i = 0; i < NUM_ENEMIES; i++) {
+        if (enemies[i] != 1) {
+            fprintf(stderr, "mapa: debe haber exactamente un '%c' (hay %d)\n", 'A' + i, enemies[i]);
+            return -1;
+        }
+    }
     return 0;
 }
 
