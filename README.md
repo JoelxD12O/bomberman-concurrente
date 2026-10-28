@@ -83,15 +83,18 @@ grep -n "TODO(Abigail)" src/*.c      # cambia el nombre por el tuyo
 4. P0 revisa los avisos (colisiones, explosiones) → resta vidas, suma puntos, ¿terminó el juego?
 ```
 
-**Dónde va tu código:** dentro del `for` de tu archivo, donde dice `>>> SEMANA 1 <<<`.
-Las líneas marcadas `NO TOCAR` son las que esperan y ceden el turno, y ya funcionan.
+**Dónde va tu código:** dentro del `while` de tu archivo, donde dice `>>> SEMANA 1 <<<`.
+Ahí mismo están los pasos a seguir. Las líneas marcadas `NO TOCAR` son las que esperan y ceden el turno, y ya funcionan.
+En la semana 1 **no hace falta usar mutex**: P0 da un solo turno a la vez, así que nadie se pisa.
 
 ```c
-for (;;) {
-    sem_wait(&sh->sem_bomber_turn);    // NO TOCAR: espera su turno
-    if (is_game_over(sh)) break;       // NO TOCAR
-    // >>> SEMANA 1: TU LÓGICA AQUÍ <<<
-    sem_post(&sh->sem_turn_done);      // NO TOCAR: avisa "terminé"
+while (1) {
+    sem_wait(&sh->sem_bomber_turn);    // NO TOCAR: dormir hasta que P0 dé el turno
+    if (is_game_over(sh)) {            // NO TOCAR: si el juego terminó, salir
+        break;
+    }
+    // >>> SEMANA 1: TU CÓDIGO AQUÍ <<<
+    sem_post(&sh->sem_turn_done);      // NO TOCAR: avisar a P0 "terminé mi turno"
 }
 ```
 

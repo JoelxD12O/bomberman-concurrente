@@ -32,6 +32,9 @@ typedef struct {
 
 instruction parse_instruction(const char *line);
 
+/* Borra el salto de línea y los espacios del final: "LEFT \r\n" -> "LEFT" */
+void limpiar_linea(char *texto);
+
 /* true si el juego terminó: los hilos deben revisarlo para salir */
 int is_game_over(shared_t *sh);
 
