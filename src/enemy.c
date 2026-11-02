@@ -50,17 +50,27 @@ void run_enemies(shared_t *sh)
 		continue;
 		}
 		char linea[64];
-		if (archivos[i] != NULL && fgets(linea, sizeof(linea), archivos[i]) != NULL) {
+		int instruccion_valida=0;
+
+		while (archivos[i] != NULL && fgets(linea, sizeof(linea), archivos[i]) != NULL) {
 		todos_terminaron=0;
 		linea[strcspn(linea, "\r\n")] = 0;
+		instruction ins = parse_instruction(linea);
+		//Saltar si la ins es una bomba o invalida
+		if (ins.type == INS_INVALID || ins.type == INS_BOMB){
+			printf("[P2]Enemigo %d ignoró instrucción inválida: %s\n", i+1, linea);
+			continue; }
+		instruccion_valida=1;
 		int  dx=0, dy=0;
-		if (strcmp(linea, "UP")==0) {dy=-1;}
-		else if (strcmp(linea, "DOWN") ==0) {dy=1;}
-		else if (strcmp(linea, "LEFT") ==0) {dx=-1;}
-		else if (strcmp(linea, "RIGHT") ==0) {dx=1;}
-		else if (strcmp(linea, "SET_PRIORITY") == 0) {
+		if (ins.type==INS_UP) {dy=-1;}
+		else if (ins.type==INS_DOWN) {dy=1;}
+		else if (ins.type==INS_LEFT) {dx=-1;}
+		else if (ins.type==INS_RIGHT) {dx=1;}
+		else if (ins.type==INS_SET_PRIORITY) {
 			if (i >= sh->pending_priority_enemy) {
-				sh->pending_priority_enemy = i; }
+				sh->pending_priority_enemy = ins.value;
+				sh->enemy_priority_request_active=1;
+			}
 		}
 		//Verificar casilla caminable si hay intento de movimiento
 		if (dx !=0 || dy!=0){
@@ -68,6 +78,7 @@ void run_enemies(shared_t *sh)
 			int ny = sh->enemy_y[i] + dy;
 			if (is_walkable(sh, nx, ny)) { sh->enemy_x[i] = nx; sh->enemy_y[i] = ny; }
 		}
+		break;
 	}
 		if (sh->enemy_x[i] == sh->bomber_x && sh->enemy_y[i]==sh->bomber_y) {
                 sh->collision_detected = 1;
@@ -78,7 +89,6 @@ void run_enemies(shared_t *sh)
         if (todos_terminaron) {
 		 sh->enemy_moves_done = 1;
         }
-
         sem_post(&sh->sem_turn_done);     // NO TOCAR: avisar a P0 "terminé mi turno"
     }
 }
