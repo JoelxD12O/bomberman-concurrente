@@ -2,6 +2,8 @@
 
 **Grupo:** Joel · Abigail · Mariel · Danilo
 
+📊 **[Esquema, tiempos y diagramas del sistema](docs/diagramas.md)**: arquitectura, qué sucede en cada tick, diagramas de tiempo según la prioridad y estado del avance.
+
 Este es el esqueleto del proyecto. **Ya compila y corre.** La parte difícil de conectar los procesos
 (memoria compartida, turnos) ya está hecha. A cada uno le toca llenar **su parte del juego**.
 
