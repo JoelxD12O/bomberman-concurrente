@@ -92,9 +92,12 @@ void* explosion_thread(void* arg) {
                             for (int j = 0; j < MAX_BOMBS; j++) {
                                 if (bombs[j].active && bombs[j].x == nx && bombs[j].y == ny) {
                                     bombs[j].timer = 0;
-                                    reevaluar = 1; 
+                                    reevaluar = 1;
                                 }
                             }
+                            // La otra Q explota en cadena y el fuego se detiene ahí
+                            shm->map_grid[ny][nx] = CELL_FIRE;
+                            break;
                         }
 
                         shm->map_grid[ny][nx] = CELL_FIRE;
@@ -131,13 +134,13 @@ void* explosion_thread(void* arg) {
 }
 
 void registrar_solicitudes() {
-    // ORDEN ESTRICTO: map_mtx -> bomb_req_mtx
+    // ORDEN ESTRICTO: local_bombs_mtx -> map_mtx -> bomb_req_mtx
+    // (mismo orden que explosion_thread para evitar deadlock)
+    pthread_mutex_lock(&local_bombs_mtx);
     pthread_mutex_lock(&shm->map_mtx);
     pthread_mutex_lock(&shm->bomb_req_mtx);
-    
+
     if (shm->bomb_request_active) {
-        pthread_mutex_lock(&local_bombs_mtx);
-        
         if (shm->active_bombs < MAX_BOMBS) {
             int rx = shm->bomb_request_x;
             int ry = shm->bomb_request_y;
@@ -162,14 +165,14 @@ void registrar_solicitudes() {
                 }
             }
         }
-        pthread_mutex_unlock(&local_bombs_mtx);
-        
+
         // P3 limpia la bandera
-        shm->bomb_request_active = 0; 
+        shm->bomb_request_active = 0;
     }
-    
+
     pthread_mutex_unlock(&shm->bomb_req_mtx);
     pthread_mutex_unlock(&shm->map_mtx);
+    pthread_mutex_unlock(&local_bombs_mtx);
 }
 
 // ESTA ES LA FUNCIÓN PRINCIPAL DE TU PROCESO (Llamada por main.c)
