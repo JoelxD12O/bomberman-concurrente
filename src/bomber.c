@@ -20,6 +20,7 @@
  *   bomber_publisher_thread   copia la posición de Bomberman a la memoria compartida
  */
 #include <stdio.h>
+#include <string.h>
 #include "procs.h"
 
 void run_bomber(shared_t *sh)
@@ -30,6 +31,13 @@ void run_bomber(shared_t *sh)
      *   snprintf(ruta, sizeof(ruta), "%s/bomber_moves.txt", sh->data_dir);
      *   FILE *archivo = fopen(ruta, "r");
      */
+     char ruta[300];
+     snprintf(ruta, sizeof(ruta), "%s/bomber_moves.txt", sh->data_dir);
+     FILE *archivo = fopen(ruta, "r");
+     if (!archivo) {
+	printf("[P1] Error: No se pudo abrir %s\n", ruta);
+	sh->bomber_moves_done = 1;
+     }
 
     while (1) {
         sem_wait(&sh->sem_bomber_turn);   // NO TOCAR: dormir hasta que P0 dé el turno
@@ -38,29 +46,55 @@ void run_bomber(shared_t *sh)
         }
 
         printf("[P1] turno en el tick %d\n", sh->global_tick);
+	int turno_gastado = 0;
+	while (!turno_gastado && archivo && !sh->bomber_moves_done){
+	char linea[64];
+	if (fgets(linea, sizeof(linea), archivo) != NULL){
+		linea[strcspn(linea, "\r\n")] = 0;
+		instruction ins = parse_instruction(linea);
+		int nx = sh->bomber_x;
+		int ny = sh->bomber_y;
+		switch (ins.type){
+			case INS_UP:
+				ny--;
+				break;
+			case INS_DOWN:
+				ny++;
+				break;
+			case INS_LEFT:
+				nx--;
+				break;
+			case INS_RIGHT:
+				nx++;
+				break;
+			case INS_BOMB:
+				sh->bomb_request_x = sh->bomber_x;
+				sh->bomb_request_y = sh->bomber_y;
+				sh->bomb_request_active = 1;
+				turno_gastado = 1;
+				continue;
+			case INS_SET_PRIORITY:
+				sh->pending_priority_bomber = ins.value;
+				sh->priority_request_active = 1;
+				turno_gastado = 1;
+				continue;
+			case INS_INVALID:
+			default:
+				printf("[P1] Aviso: Linea invalida descartada '%s'\n", linea);
+				continue;
+		}
+		if (is_walkable(sh, nx, ny)){
+			sh->bomber_x = nx;
+			sh->bomber_y = ny;
+		}
+		turno_gastado = 1;
+		} else {
+			sh->bomber_moves_done = 1;
+			fclose(archivo);
+			archivo = NULL;
+		}
+	}
 
-        /* >>> SEMANA 1 — TODO(Abigail): tu código va AQUÍ <<<
-         *
-         * 1. Leer una línea:   char linea[64];  fgets(linea, sizeof(linea), archivo)
-         *    Si fgets devuelve NULL se acabó el archivo:  sh->bomber_moves_done = 1;
-         *
-         * 2. Entender la línea:   instruction ins = parse_instruction(linea);
-         *
-         * 3. Hacer lo que dice ins.type:
-         *    INS_UP / INS_DOWN / INS_LEFT / INS_RIGHT:
-         *        calcular la celda nueva (nx, ny). OJO: y crece hacia ABAJO,
-         *        así que UP es y - 1 y DOWN es y + 1.
-         *        if (is_walkable(sh, nx, ny))  { sh->bomber_x = nx; sh->bomber_y = ny; }
-         *    INS_BOMB:
-         *        sh->bomb_request_x = sh->bomber_x;
-         *        sh->bomb_request_y = sh->bomber_y;
-         *        sh->bomb_request_active = 1;
-         *    INS_SET_PRIORITY:
-         *        sh->pending_priority_bomber = ins.value;
-         *        sh->priority_request_active = 1;
-         *    INS_INVALID:
-         *        printf un aviso y volver al paso 1 (leer otra línea)
-         */
 
         sem_post(&sh->sem_turn_done);     // NO TOCAR: avisar a P0 "terminé mi turno"
     }
