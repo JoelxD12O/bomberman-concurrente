@@ -8,16 +8,50 @@
  *   4. Cierre:  revisa los avisos (choques, explosiones), resta vidas,
  *               calcula el puntaje y decide si el juego terminó.
  *
- * SEMANA 1: todo en un solo hilo (este archivo).
- * SEMANA 2: dividirlo en 4 hilos: tick_thread, scheduler_thread,
- *           signal_thread y event_thread.
+ * SEMANA 2: P0 tiene 4 hilos (sección 2.1). Cada hilo hace UNA parte del tick
+ * y le pasa la "posta" al siguiente con un semáforo interno:
+ *
+ *   tick_thread ──> scheduler_thread ──> signal_thread ──> event_thread ──┐
+ *   (tick++)        (decide P1 o P2)     (da los turnos)   (vidas, fin)   │
+ *        ^                                                                │
+ *        └──────────────────────── siguiente tick ────────────────────────┘
+ *
+ * Los semáforos internos fijan el ORDEN de los hilos; los mutex protegen los
+ * DATOS que comparten (global_tick, turno_actual, prioridades, vidas...).
  */
 #include <stdio.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include "procs.h"
 
 /* Para los empates: 1 = en el próximo empate juega P1, 0 = juega P2.
- * Empieza en 1 para que P1 juegue en los ticks impares (sección 8.5). */
+ * Empieza en 1 para que P1 juegue en los ticks impares (sección 8.5).
+ * Solo la usa scheduler_thread, por eso no necesita mutex. */
 static int empate_le_toca_a_bomber = 1;
+
+/* ---------------------------------------------------------------------------
+ * Datos INTERNOS de P0 (no están en la memoria compartida)
+ *
+ * Solo los usan los 4 hilos de P0, que viven en el mismo proceso. Por eso:
+ *   - los semáforos se crean con sem_init(..., 0, ...): el 0 significa
+ *     "solo entre hilos de este proceso";
+ *   - el mutex es uno normal, sin PTHREAD_PROCESS_SHARED.
+ * En cambio, los semáforos y mutex de shared.h los usan procesos distintos
+ * (P0, P1, P2, P3): esos sí necesitan el 1 y PTHREAD_PROCESS_SHARED (main.c).
+ * ------------------------------------------------------------------------- */
+
+/* La "posta" entre los hilos: cada semáforo despierta al hilo siguiente */
+static sem_t sem_toca_tick;      /* event_thread     -> tick_thread      */
+static sem_t sem_toca_decidir;   /* tick_thread      -> scheduler_thread */
+static sem_t sem_toca_senal;     /* scheduler_thread -> signal_thread    */
+static sem_t sem_toca_eventos;   /* signal_thread    -> event_thread     */
+
+/* A quién le toca en este tick: lo escribe scheduler_thread y lo lee
+ * signal_thread, así que va protegido con turno_mtx (sección 14). */
+#define TURNO_BOMBER 1
+#define TURNO_ENEMY  2
+static int turno_actual = 0;
+static pthread_mutex_t turno_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* Texto del resultado, para imprimirlo */
 static const char *nombre_resultado(int resultado)
@@ -187,47 +221,183 @@ static void check_end(shared_t *sh)
     pthread_mutex_unlock(&sh->state_mtx);
 }
 
-/* ---------------------------------------------------------------------------
- * El ciclo principal de P0
- * ------------------------------------------------------------------------- */
-void run_scheduler(shared_t *sh)
+/* Lee global_tick con su mutex (tick_thread lo escribe) */
+static int leer_tick(shared_t *sh)
 {
-    while (!is_game_over(sh)) {
+    pthread_mutex_lock(&sh->state_mtx);
+    int tick = sh->global_tick;
+    pthread_mutex_unlock(&sh->state_mtx);
+    return tick;
+}
 
-        /* 1. Inicio */
+/* ---------------------------------------------------------------------------
+ * Cómo terminan los hilos
+ *
+ * Cada hilo, apenas se despierta, pregunta si el juego terminó. Si terminó,
+ * igual le pasa la posta al hilo siguiente (para que ese también se despierte,
+ * lo vea y salga) y después sale de su while. Así se apagan los 4 en cadena:
+ *   event_thread marca game_over -> tick -> scheduler -> signal -> event
+ * ------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+ * Hilo 1: tick_thread — avanza el reloj del juego
+ * ------------------------------------------------------------------------- */
+static void *tick_thread(void *arg)
+{
+    shared_t *sh = arg;
+
+    while (1) {
+        sem_wait(&sem_toca_tick);          /* espero a que termine el tick anterior */
+
+        if (is_game_over(sh)) {
+            sem_post(&sem_toca_decidir);   /* aviso al siguiente para que también salga */
+            break;
+        }
+
         pthread_mutex_lock(&sh->state_mtx);
         sh->global_tick++;
         pthread_mutex_unlock(&sh->state_mtx);
 
-        process_priority_requests(sh);
+        sem_post(&sem_toca_decidir);       /* posta -> scheduler_thread */
+    }
+    return NULL;
+}
 
-        /* 2. Fase de acción: le doy el turno a P1 o a P2 y espero que termine */
-        if (le_toca_a_bomber(sh)) {
-            printf("[P0] tick %d -> turno de P1 (Bomberman)\n", sh->global_tick);
+/* ---------------------------------------------------------------------------
+ * Hilo 2: scheduler_thread — decide quién juega en este tick
+ * ------------------------------------------------------------------------- */
+static void *scheduler_thread(void *arg)
+{
+    shared_t *sh = arg;
+
+    while (1) {
+        sem_wait(&sem_toca_decidir);
+
+        if (is_game_over(sh)) {
+            sem_post(&sem_toca_senal);
+            break;
+        }
+
+        process_priority_requests(sh);     /* paso 1: aplicar los buzones */
+
+        int elegido;
+        if (le_toca_a_bomber(sh)) {        /* paso 2: comparar prioridades */
+            elegido = TURNO_BOMBER;
+        } else {
+            elegido = TURNO_ENEMY;
+        }
+
+        pthread_mutex_lock(&turno_mtx);
+        turno_actual = elegido;
+        pthread_mutex_unlock(&turno_mtx);
+
+        sem_post(&sem_toca_senal);         /* posta -> signal_thread */
+    }
+    return NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Hilo 3: signal_thread — da el permiso a P1/P2 y después a P3
+ * Es el único hilo de P0 que habla con los otros procesos por semáforos.
+ * ------------------------------------------------------------------------- */
+static void *signal_thread(void *arg)
+{
+    shared_t *sh = arg;
+
+    while (1) {
+        sem_wait(&sem_toca_senal);
+
+        if (is_game_over(sh)) {
+            /* Los hijos están dormidos esperando su turno: los despierto
+             * para que vean game_over = 1 y terminen. */
+            sem_post(&sh->sem_bomber_turn);
+            sem_post(&sh->sem_enemy_turn);
+            sem_post(&sh->sem_bomb_turn);
+            sem_post(&sh->sem_render);
+            sem_post(&sem_toca_eventos);
+            break;
+        }
+
+        pthread_mutex_lock(&turno_mtx);
+        int turno = turno_actual;
+        pthread_mutex_unlock(&turno_mtx);
+
+        /* Fase de acción: le doy el turno a P1 o a P2 y espero que termine */
+        if (turno == TURNO_BOMBER) {
+            printf("[P0] tick %d -> turno de P1 (Bomberman)\n", leer_tick(sh));
             sem_post(&sh->sem_bomber_turn);
         } else {
-            printf("[P0] tick %d -> turno de P2 (enemigos)\n", sh->global_tick);
+            printf("[P0] tick %d -> turno de P2 (enemigos)\n", leer_tick(sh));
             sem_post(&sh->sem_enemy_turn);
         }
-        sem_wait(&sh->sem_turn_done);   /* espero el "terminé" */
+        sem_wait(&sh->sem_turn_done);      /* espero el "terminé" */
 
-        /* 3. Fase de bombas: P3 juega en TODOS los ticks */
+        /* Fase de bombas: P3 juega en TODOS los ticks */
         sem_post(&sh->sem_bomb_turn);
         sem_wait(&sh->sem_turn_done);
 
-        /* 4. Cierre */
-        process_events(sh);
-        check_end(sh);
+        sem_post(&sem_toca_eventos);       /* posta -> event_thread */
+    }
+    return NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Hilo 4: event_thread — aplica los avisos y decide si el juego terminó
+ * ------------------------------------------------------------------------- */
+static void *event_thread(void *arg)
+{
+    shared_t *sh = arg;
+
+    while (1) {
+        sem_wait(&sem_toca_eventos);
+
+        if (is_game_over(sh)) {
+            break;                         /* es el último de la cadena */
+        }
+
+        process_events(sh);                /* vidas, enemigos, puntaje */
+        check_end(sh);                     /* si se cumple algo: game_over = 1 */
         print_map(sh);
+
+        pthread_mutex_lock(&sh->state_mtx);
         printf("[P0] vidas=%d enemigos=%d score=%d\n",
                sh->bomber_lives, sh->enemies_alive, sh->score);
-        sem_post(&sh->sem_render);   /* avisa al dibujador P4, si existe */
-    }
+        pthread_mutex_unlock(&sh->state_mtx);
 
-    /* El juego terminó. Los hijos están dormidos esperando su turno:
-     * los despierto para que vean game_over = 1 y terminen. */
-    sem_post(&sh->sem_bomber_turn);
-    sem_post(&sh->sem_enemy_turn);
-    sem_post(&sh->sem_bomb_turn);
-    sem_post(&sh->sem_render);
+        sem_post(&sh->sem_render);         /* avisa al dibujador P4, si existe */
+        sem_post(&sem_toca_tick);          /* posta -> tick_thread: siguiente tick */
+    }
+    return NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * run_scheduler: crea los 4 hilos de P0 y espera a que terminen
+ * ------------------------------------------------------------------------- */
+void run_scheduler(shared_t *sh)
+{
+    /* sem_init(semáforo, 0 = solo hilos de este proceso, valor_inicial).
+     * sem_toca_tick empieza en 1 para que el primer tick arranque solo;
+     * los demás empiezan en 0: esperan su posta. */
+    sem_init(&sem_toca_tick,    0, 1);
+    sem_init(&sem_toca_decidir, 0, 0);
+    sem_init(&sem_toca_senal,   0, 0);
+    sem_init(&sem_toca_eventos, 0, 0);
+
+    pthread_t hilo_tick, hilo_scheduler, hilo_signal, hilo_event;
+
+    pthread_create(&hilo_tick,      NULL, tick_thread,      sh);
+    pthread_create(&hilo_scheduler, NULL, scheduler_thread, sh);
+    pthread_create(&hilo_signal,    NULL, signal_thread,    sh);
+    pthread_create(&hilo_event,     NULL, event_thread,     sh);
+
+    /* pthread_join espera a que cada hilo termine (como waitpid, pero para hilos) */
+    pthread_join(hilo_tick,      NULL);
+    pthread_join(hilo_scheduler, NULL);
+    pthread_join(hilo_signal,    NULL);
+    pthread_join(hilo_event,     NULL);
+
+    sem_destroy(&sem_toca_tick);
+    sem_destroy(&sem_toca_decidir);
+    sem_destroy(&sem_toca_senal);
+    sem_destroy(&sem_toca_eventos);
 }
