@@ -43,15 +43,14 @@ void run_enemies(shared_t *sh)
 
         /* >>> SEMANA 1 — TODO(Mariel): tu código va AQUÍ <<<*/
         int todos_terminaron = 1;
-	
+	int pedido_en_este_turno=0;
 	for (int i=0;i<NUM_ENEMIES; i++) {
 	//Solo procesamos enemigos vivos
 		if (sh->enemy_alive[i] == 0) {
 		continue;
 		}
 		char linea[64];
-		int instruccion_valida=0;
-
+		
 		while (archivos[i] != NULL && fgets(linea, sizeof(linea), archivos[i]) != NULL) {
 		todos_terminaron=0;
 		linea[strcspn(linea, "\r\n")] = 0;
@@ -59,27 +58,29 @@ void run_enemies(shared_t *sh)
 		//Saltar si la ins es una bomba o invalida
 		if (ins.type == INS_INVALID || ins.type == INS_BOMB){
 			printf("[P2]Enemigo %d ignoró instrucción inválida: %s\n", i+1, linea);
-			continue; }
-		instruccion_valida=1;
+		continue; }
 		int  dx=0, dy=0;
 		if (ins.type==INS_UP) {dy=-1;}
 		else if (ins.type==INS_DOWN) {dy=1;}
 		else if (ins.type==INS_LEFT) {dx=-1;}
 		else if (ins.type==INS_RIGHT) {dx=1;}
 		else if (ins.type==INS_SET_PRIORITY) {
-			if (i >= sh->pending_priority_enemy) {
+			if (ins.value>pedido_en_este_turno) {
+				pedido_en_este_turno=ins.value;
 				sh->pending_priority_enemy = ins.value;
 				sh->enemy_priority_request_active=1;
 			}
+			
 		}
 		//Verificar casilla caminable si hay intento de movimiento
 		if (dx !=0 || dy!=0){
 			int nx = sh->enemy_x[i] + dx;
 			int ny = sh->enemy_y[i] + dy;
-			if (is_walkable(sh, nx, ny)) { sh->enemy_x[i] = nx; sh->enemy_y[i] = ny; }
+			if (is_walkable(sh, nx, ny)) { sh->enemy_x[i] = nx; sh->enemy_y[i] = ny; 
 		}
 		break;
 	}
+}
 		if (sh->enemy_x[i] == sh->bomber_x && sh->enemy_y[i]==sh->bomber_y) {
                 sh->collision_detected = 1;
                 sh->collision_tick = sh->global_tick;
