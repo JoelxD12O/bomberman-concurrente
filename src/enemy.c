@@ -22,18 +22,16 @@
  */
 #include <stdio.h>
 #include "procs.h"
-
+#include <string.h>
 void run_enemies(shared_t *sh)
 {
-    /* SEMANA 1 — TODO(Mariel): abrir los 4 archivos aquí, antes del while:
-     *
-     *   FILE *archivos[NUM_ENEMIES];
-     *   for (int i = 0; i < NUM_ENEMIES; i++) {
-     *       char ruta[300];
-     *       snprintf(ruta, sizeof(ruta), "%s/enemy_%d_moves.txt", sh->data_dir, i + 1);
-     *       archivos[i] = fopen(ruta, "r");
-     *   }
-     */
+    /* SEMANA 1 — TODO(Mariel): abrir los 4 archivos aquí, antes del while:*/
+     FILE *archivos[NUM_ENEMIES];
+     for (int i = 0; i < NUM_ENEMIES; i++) {
+          char ruta[300];
+          snprintf(ruta, sizeof(ruta), "%s/enemy_%d_moves.txt", sh->data_dir, i + 1);
+          archivos[i] = fopen(ruta, "r");
+      }
 
     while (1) {
         sem_wait(&sh->sem_enemy_turn);    // NO TOCAR: dormir hasta que P0 dé el turno
@@ -43,25 +41,55 @@ void run_enemies(shared_t *sh)
 
         printf("[P2] turno en el tick %d\n", sh->global_tick);
 
-        /* >>> SEMANA 1 — TODO(Mariel): tu código va AQUÍ <<<
-         *
-         * 1. Para cada enemigo i (de 0 a 3) con sh->enemy_alive[i] == 1:
-         *      - leer una línea de archivos[i] con fgets
-         *      - instruction ins = parse_instruction(linea);
-         *      - si es UP/DOWN/LEFT/RIGHT: calcular (nx, ny) y
-         *        if (is_walkable(sh, nx, ny)) { sh->enemy_x[i] = nx; sh->enemy_y[i] = ny; }
-         *        OJO: y crece hacia ABAJO (UP es y - 1).
-         *
-         * 2. Después de mover a todos: si algún enemigo vivo está en la misma
-         *    celda que Bomberman (sh->bomber_x, sh->bomber_y):
-         *        sh->collision_detected = 1;
-         *        sh->collision_tick = sh->global_tick;
-         *        sh->collision_enemy_id = i;
-         *
-         * 3. Cuando TODOS los enemigos vivos terminaron su archivo:
-         *        sh->enemy_moves_done = 1;
-         */
-
+        /* >>> SEMANA 1 — TODO(Mariel): tu código va AQUÍ <<<*/
+        int todos_terminaron = 1;
+	int pedido_en_este_turno=0;
+	for (int i=0;i<NUM_ENEMIES; i++) {
+	//Solo procesamos enemigos vivos
+		if (sh->enemy_alive[i] == 0) {
+		continue;
+		}
+		char linea[64];
+		
+		while (archivos[i] != NULL && fgets(linea, sizeof(linea), archivos[i]) != NULL) {
+		todos_terminaron=0;
+		linea[strcspn(linea, "\r\n")] = 0;
+		instruction ins = parse_instruction(linea);
+		//Saltar si la ins es una bomba o invalida
+		if (ins.type == INS_INVALID || ins.type == INS_BOMB){
+			printf("[P2]Enemigo %d ignoró instrucción inválida: %s\n", i+1, linea);
+		continue; }
+		int  dx=0, dy=0;
+		if (ins.type==INS_UP) {dy=-1;}
+		else if (ins.type==INS_DOWN) {dy=1;}
+		else if (ins.type==INS_LEFT) {dx=-1;}
+		else if (ins.type==INS_RIGHT) {dx=1;}
+		else if (ins.type==INS_SET_PRIORITY) {
+			if (ins.value>pedido_en_este_turno) {
+				pedido_en_este_turno=ins.value;
+				sh->pending_priority_enemy = ins.value;
+				sh->enemy_priority_request_active=1;
+			}
+			
+		}
+		//Verificar casilla caminable si hay intento de movimiento
+		if (dx !=0 || dy!=0){
+			int nx = sh->enemy_x[i] + dx;
+			int ny = sh->enemy_y[i] + dy;
+			if (is_walkable(sh, nx, ny)) { sh->enemy_x[i] = nx; sh->enemy_y[i] = ny; 
+		}
+		break;
+	}
+}
+		if (sh->enemy_x[i] == sh->bomber_x && sh->enemy_y[i]==sh->bomber_y) {
+                sh->collision_detected = 1;
+                sh->collision_tick = sh->global_tick;
+                sh->collision_enemy_id = i;
+         	}
+	}
+        if (todos_terminaron) {
+		 sh->enemy_moves_done = 1;
+        }
         sem_post(&sh->sem_turn_done);     // NO TOCAR: avisar a P0 "terminé mi turno"
     }
 }
