@@ -96,6 +96,13 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* max_ticks tiene que ser un número positivo (atoi devuelve 0 si no es número) */
+    int max_ticks = atoi(argv[2]);
+    if (max_ticks < 1) {
+        printf("error: max_ticks debe ser un número mayor que 0 (se recibió \"%s\")\n", argv[2]);
+        return 1;
+    }
+
     /* Prioridades iniciales (sección 9). Se pueden cambiar con dos números
      * después de max_ticks, para probar otros casos (por ejemplo, el 8.5). */
     int prio_bomber = 20;
@@ -134,7 +141,7 @@ int main(int argc, char **argv)
 
     /* ---- 2. Valores iniciales ---- */
     strncpy(sh->data_dir, argv[1], sizeof(sh->data_dir) - 1);
-    sh->max_ticks        = atoi(argv[2]);
+    sh->max_ticks        = max_ticks;
     sh->bomber_lives     = INITIAL_LIVES;
     sh->prioridad_bomber = prio_bomber;
     sh->prioridad_enemy  = prio_enemy;
