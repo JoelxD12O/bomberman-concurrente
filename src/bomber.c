@@ -65,6 +65,11 @@ void* movement_reader_thread(void* arg){
 
 	sem_wait(&sem_espacios);
 
+	/* Si el juego terminó mientras esperaba un espacio, ya no hace falta leer más */
+	if (is_game_over(shared_mem)) {
+	    break;
+	}
+
 	pthread_mutex_lock(&queue_mtx);
 	instruction_queue[q_tail] = ins;
 	q_tail = (q_tail + 1) % QUEUE_SIZE;
@@ -114,9 +119,16 @@ void* movement_executor_thread(void *arg){
 	sem_wait(&shared_mem->sem_bomber_turn);
 	if (is_game_over(shared_mem)) {
 	    local_moves_done = 1;
-	sem_post(&sem_publish);
-    break;
-    }
+	    sem_post(&sem_publish);
+	    sem_post(&sem_espacios);   /* despierta al lector si esperaba con la cola llena */
+	    break;
+	}
+
+	/* Ya no quedan instrucciones: igual responde el turno para que P0 no se quede esperando */
+	if (local_moves_done) {
+	    sem_post(&shared_mem->sem_turn_done);
+	    continue;
+	}
 
     int turno_gastado = 0;
     while (!turno_gastado){
@@ -184,7 +196,6 @@ void* movement_executor_thread(void *arg){
     }
 
     sem_post(&shared_mem->sem_turn_done);
-    if (local_moves_done) break;
     }
     return NULL;
 }

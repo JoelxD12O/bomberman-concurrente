@@ -79,8 +79,11 @@ void* enemy_thread(void* arg) {
             linea[strcspn(linea, "\r\n")] = 0;
             instruction ins = parse_instruction(linea);
 
+            /* Línea inválida (o BOMB, que no vale para enemigos): se reporta y
+             * se lee la siguiente, sin gastar el turno (sección 6) */
             if (ins.type == INS_INVALID || ins.type == INS_BOMB) {
-                continue; 
+                printf("[P2] Aviso: enemigo %d, línea inválida descartada: \"%s\"\n", i + 1, linea);
+                continue;
             }
 
             if (ins.type == INS_SET_PRIORITY) {
@@ -222,9 +225,11 @@ void* enemy_controller_thread(void* arg) {
             sem_wait(&sem_enemy_done);
         }
 
+        /* Primero el tracker copia la posición de Bomberman y RECIÉN DESPUÉS
+         * collision la usa; si corrieran a la vez, podría usar la copia vieja */
         sem_post(&sem_start_tracker);
-        sem_post(&sem_start_collision);
         sem_wait(&sem_tracker_done);
+        sem_post(&sem_start_collision);
         sem_wait(&sem_collision_done);
 
         sem_post(&sem_start_publisher);
