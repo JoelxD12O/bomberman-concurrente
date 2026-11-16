@@ -23,6 +23,10 @@
 #include <sys/wait.h>
 #include "procs.h"
 
+/* Modo -r (bonus P4). Se declaran en procs.h. */
+int hay_renderer = 0;
+int fd_terminal  = 1;    /* 1 = la salida estándar (la terminal) */
+
 /* Crea los semáforos y mutex. El segundo argumento de sem_init en 1 significa
  * "este semáforo lo van a usar varios PROCESOS", no solo hilos. */
 static void crear_sincronizacion(shared_t *sh)
@@ -148,6 +152,19 @@ int main(int argc, char **argv)
     if (load_map(sh, ruta_mapa) != 0) {
         printf("error: mapa inválido en %s\n", ruta_mapa);
         return 1;
+    }
+
+    /* ---- Modo -r: la terminal queda solo para el dibujo de P4 ----
+     * dup guarda una copia de la terminal para P4. freopen manda todo lo que
+     * imprimen P0..P3 (printf) al archivo partida.log, así no se mezcla con el dibujo. */
+    if (usar_renderer) {
+        hay_renderer = 1;
+        fd_terminal  = dup(STDOUT_FILENO);
+        if (freopen("partida.log", "w", stdout) == NULL) {
+            printf("error: no se pudo crear partida.log\n");
+            return 1;
+        }
+        setvbuf(stdout, NULL, _IOLBF, 0);
     }
 
     /* ---- 5. Crear los procesos hijos ----

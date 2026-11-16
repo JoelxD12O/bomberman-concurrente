@@ -364,8 +364,14 @@ static void *event_thread(void *arg)
                sh->bomber_lives, sh->enemies_alive, sh->score);
         pthread_mutex_unlock(&sh->state_mtx);
 
-        sem_post(&sh->sem_render);         /* avisa al dibujador P4, si existe */
-        sem_post(&sem_toca_tick);          /* posta -> tick_thread: siguiente tick */
+        /* Con -r: P4 dibuja este tick y P0 espera a que termine, para que el
+         * dibujo vaya al ritmo del juego (no se adelanta ni se atrasa). */
+        if (hay_renderer) {
+            sem_post(&sh->sem_render);
+            sem_wait(&sh->sem_turn_done);
+        }
+
+        sem_post(&sem_toca_tick);         /* posta -> tick_thread: siguiente tick */
     }
     return NULL;
 }
@@ -382,6 +388,12 @@ void run_scheduler(shared_t *sh)
     sem_init(&sem_toca_decidir, 0, 0);
     sem_init(&sem_toca_senal,   0, 0);
     sem_init(&sem_toca_eventos, 0, 0);
+
+    /* Con -r: P4 dibuja el mapa inicial (tick 0) antes de empezar */
+    if (hay_renderer) {
+        sem_post(&sh->sem_render);
+        sem_wait(&sh->sem_turn_done);
+    }
 
     pthread_t hilo_tick, hilo_scheduler, hilo_signal, hilo_event;
 
