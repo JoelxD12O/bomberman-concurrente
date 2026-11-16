@@ -1,0 +1,9 @@
+experimentos/bin/
+experimentos/__pycache__/
+*.aux
+*.log
+*.toc
+*.out
+*.fdb_latexmk
+*.fls
+*.synctex.gz
