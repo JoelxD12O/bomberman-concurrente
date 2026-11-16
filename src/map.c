@@ -129,10 +129,12 @@ int is_walkable(shared_t *sh, int x, int y)
 /* Dibuja el mapa en la consola con los personajes encima. */
 void print_map(shared_t *sh)
 {
-    /* se toman los mutex en el orden de shared.h: map -> bomber -> enemy */
+    /* se toman los mutex en el orden de shared.h: map -> bomber -> enemy -> state
+     * (state_mtx protege enemy_alive[]) */
     pthread_mutex_lock(&sh->map_mtx);
     pthread_mutex_lock(&sh->bomber_mtx);
     pthread_mutex_lock(&sh->enemy_mtx);
+    pthread_mutex_lock(&sh->state_mtx);
 
     for (int y = 0; y < sh->rows; y++) {
         for (int x = 0; x < sh->cols; x++) {
@@ -151,6 +153,7 @@ void print_map(shared_t *sh)
         printf("\n");
     }
 
+    pthread_mutex_unlock(&sh->state_mtx);
     pthread_mutex_unlock(&sh->enemy_mtx);
     pthread_mutex_unlock(&sh->bomber_mtx);
     pthread_mutex_unlock(&sh->map_mtx);

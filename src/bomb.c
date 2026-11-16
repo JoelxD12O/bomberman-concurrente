@@ -5,7 +5,9 @@
  *   bomb_controller_thread  espera el turno de P0 y despierta a los otros dos,
  *                           siempre en el orden: limpiar -> avanzar -> explotar -> registrar
  *   fuse_thread             baja el temporizador de cada bomba activa
- *   explosion_thread        hace explotar las bombas con temporizador en 0 (con cadena)
+ *   explosion_thread        limpia el fuego del tick anterior y hace explotar las
+ *                           bombas con temporizador en 0 (con cadena)
+ *   (registrar la bomba pedida lo hace el controller, sección 8.2)
  *
  * Los hilos se avisan con semáforos LOCALES de P3 (pshared = 0).
  * La tabla bombs[] es privada de P3 y tiene su propio mutex: bombs_mtx.
@@ -36,8 +38,9 @@ static Bomb bombs[MAX_BOMBS];
 static pthread_mutex_t bombs_mtx = PTHREAD_MUTEX_INITIALIZER;  /* mutex propio de bombs[] */
 
 /* Semáforos locales entre los hilos de P3 */
-static sem_t sem_fuse_go,      sem_fuse_done;       /* controller <-> fuse      */
-static sem_t sem_explosion_go, sem_explosion_done;  /* controller <-> explosion */
+static sem_t sem_limpiar_go,   sem_limpiar_done;    /* controller <-> explosion (paso 1) */
+static sem_t sem_fuse_go,      sem_fuse_done;       /* controller <-> fuse      (paso 2) */
+static sem_t sem_explosion_go, sem_explosion_done;  /* controller <-> explosion (paso 3) */
 
 /* El controller lo pone en 1 cuando el juego termina, para que los otros hilos salgan */
 static volatile int terminar = 0;
@@ -193,14 +196,21 @@ static void explotar(void)
     pthread_mutex_unlock(&bombs_mtx);
 }
 
+/* explosion_thread hace dos pasos del tick (sección 8.2):
+ *   paso 1: limpiar el fuego del tick anterior
+ *   paso 3: explotar (entre medio, fuse_thread hace el paso 2) */
 static void *explosion_thread(void *arg)
 {
     (void)arg;
     while (1) {
-        sem_wait(&sem_explosion_go);
+        sem_wait(&sem_limpiar_go);       /* paso 1 */
         if (terminar) {
             break;
         }
+        limpiar_fuego();
+        sem_post(&sem_limpiar_done);
+
+        sem_wait(&sem_explosion_go);     /* paso 3 */
         explotar();
         sem_post(&sem_explosion_done);
     }
@@ -263,8 +273,9 @@ static void *bomb_controller_thread(void *arg)
             break;
         }
 
-        /* 1. limpiar */
-        limpiar_fuego();
+        /* 1. limpiar: despierto a explosion_thread y espero que termine */
+        sem_post(&sem_limpiar_go);
+        sem_wait(&sem_limpiar_done);
 
         /* 2. avanzar: despierto a fuse_thread y espero que termine */
         sem_post(&sem_fuse_go);
@@ -283,7 +294,7 @@ static void *bomb_controller_thread(void *arg)
     /* El juego terminó: despierto a los otros hilos para que salgan */
     terminar = 1;
     sem_post(&sem_fuse_go);
-    sem_post(&sem_explosion_go);
+    sem_post(&sem_limpiar_go);           /* explosion_thread espera aquí entre ticks */
     return NULL;
 }
 
@@ -299,6 +310,8 @@ void run_bombs(shared_t *sh)
     }
 
     /* semáforos locales del proceso P3 (pshared = 0), todos empiezan en 0 */
+    sem_init(&sem_limpiar_go,     0, 0);
+    sem_init(&sem_limpiar_done,   0, 0);
     sem_init(&sem_fuse_go,        0, 0);
     sem_init(&sem_fuse_done,      0, 0);
     sem_init(&sem_explosion_go,   0, 0);
@@ -313,6 +326,8 @@ void run_bombs(shared_t *sh)
     pthread_join(fuse,       NULL);
     pthread_join(explosion,  NULL);
 
+    sem_destroy(&sem_limpiar_go);
+    sem_destroy(&sem_limpiar_done);
     sem_destroy(&sem_fuse_go);
     sem_destroy(&sem_fuse_done);
     sem_destroy(&sem_explosion_go);

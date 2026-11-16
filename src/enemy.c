@@ -47,12 +47,31 @@ sem_t sem_collision_done;
 sem_t sem_start_publisher;
 
 int todos_terminaron = 1;
-int pedido_en_este_turno = 0;
+int enemigo_del_pedido = -1;   // número del enemigo que pidió SET_PRIORITY en este turno
 int running = 1;
 
-// Copias de posición rastreadas de Bomberman
+// Copias de posición rastreadas de Bomberman (bomber_last_position)
 int copia_bx = 0;
 int copia_by = 0;
+
+// Posiciones INTERNAS de los enemigos (enemy_positions[], sección 2.3).
+// Los enemy_thread mueven estas; enemy_publisher_thread las copia a la memoria compartida.
+int pos_x[NUM_ENEMIES];
+int pos_y[NUM_ENEMIES];
+
+/*
+ * Orden de mutex en P2 (para no tener deadlock):
+ *   primero los locales (p2_mtx o local_pos_mtx), después los compartidos
+ *   en el orden de shared.h: map -> bomber -> enemy -> prio -> events -> state
+ */
+
+// Lee enemy_alive[i] (lo escribe P0) con su mutex compartido
+static int esta_vivo(shared_t *sh, int i) {
+    pthread_mutex_lock(&sh->state_mtx);
+    int vivo = sh->enemy_alive[i];
+    pthread_mutex_unlock(&sh->state_mtx);
+    return vivo;
+}
 
 // --- HILOS DE LOS ENEMIGOS ---
 void* enemy_thread(void* arg) {
@@ -86,15 +105,19 @@ void* enemy_thread(void* arg) {
                 continue;
             }
 
+            /* SET_PRIORITY: si dos enemigos lo piden en el mismo turno,
+             * prevalece el del enemigo de MAYOR NÚMERO (sección 10) */
             if (ins.type == INS_SET_PRIORITY) {
                 pthread_mutex_lock(&p2_mtx);
-                if (ins.value > pedido_en_este_turno) {
-                    pedido_en_este_turno = ins.value;
+                if (i > enemigo_del_pedido) {
+                    enemigo_del_pedido = i;
+                    pthread_mutex_lock(&sh->prio_mtx);      // buzón compartido con P0
                     sh->pending_priority_enemy = ins.value;
                     sh->enemy_priority_request_active = 1;
+                    pthread_mutex_unlock(&sh->prio_mtx);
                 }
                 pthread_mutex_unlock(&p2_mtx);
-                break; 
+                break;
             }
 
             int dx = 0, dy = 0;
@@ -105,11 +128,16 @@ void* enemy_thread(void* arg) {
 
             if (dx != 0 || dy != 0) {
                 pthread_mutex_lock(&local_pos_mtx);
-                int nx = sh->enemy_x[i] + dx;
-                int ny = sh->enemy_y[i] + dy;
-                if (is_walkable(sh, nx, ny)) {
-                    sh->enemy_x[i] = nx;
-                    sh->enemy_y[i] = ny;
+                int nx = pos_x[i] + dx;
+                int ny = pos_y[i] + dy;
+
+                pthread_mutex_lock(&sh->map_mtx);           // P3 escribe el mapa
+                int se_puede = is_walkable(sh, nx, ny);
+                pthread_mutex_unlock(&sh->map_mtx);
+
+                if (se_puede) {
+                    pos_x[i] = nx;                          // posición interna
+                    pos_y[i] = ny;
                 }
                 pthread_mutex_unlock(&local_pos_mtx);
             }
@@ -132,8 +160,10 @@ void* bomber_tracker_thread(void* arg) {
         if (!seguir) break;
 
         pthread_mutex_lock(&local_pos_mtx);
+        pthread_mutex_lock(&sh->bomber_mtx);                // P1 publica la posición
         copia_bx = sh->bomber_x;
         copia_by = sh->bomber_y;
+        pthread_mutex_unlock(&sh->bomber_mtx);
         pthread_mutex_unlock(&local_pos_mtx);
         
         sem_post(&sem_tracker_done);
@@ -152,12 +182,17 @@ void* collision_thread(void* arg) {
         pthread_mutex_unlock(&p2_mtx);
         if (!seguir) break;
 
+        pthread_mutex_lock(&sh->state_mtx);                 // lo escribe P0
+        int tick = sh->global_tick;
+        pthread_mutex_unlock(&sh->state_mtx);
+
+        /* Compara la copia de Bomberman con las posiciones INTERNAS de los enemigos vivos */
         pthread_mutex_lock(&local_pos_mtx);
         for (int i = 0; i < NUM_ENEMIES; i++) {
-            if (sh->enemy_alive[i] && sh->enemy_x[i] == copia_bx && sh->enemy_y[i] == copia_by) {
-                pthread_mutex_lock(&sh->events_mtx);
+            if (esta_vivo(sh, i) && pos_x[i] == copia_bx && pos_y[i] == copia_by) {
+                pthread_mutex_lock(&sh->events_mtx);        // evento compartido con P0
                 sh->collision_detected = 1;
-                sh->collision_tick = sh->global_tick;
+                sh->collision_tick = tick;
                 sh->collision_enemy_id = i;
                 pthread_mutex_unlock(&sh->events_mtx);
             }
@@ -180,10 +215,22 @@ void* enemy_publisher_thread(void* arg) {
         if (!seguir) break;
 
         pthread_mutex_lock(&p2_mtx);
-        if (todos_terminaron) {
+        int terminaron = todos_terminaron;
+        pthread_mutex_unlock(&p2_mtx);
+
+        /* Copia las posiciones internas a la memoria compartida (enemy_x[], enemy_y[]),
+         * para que P3 sepa a qué enemigos alcanza una explosión */
+        pthread_mutex_lock(&local_pos_mtx);
+        pthread_mutex_lock(&sh->enemy_mtx);
+        for (int i = 0; i < NUM_ENEMIES; i++) {
+            sh->enemy_x[i] = pos_x[i];
+            sh->enemy_y[i] = pos_y[i];
+        }
+        if (terminaron) {
             sh->enemy_moves_done = 1;
         }
-        pthread_mutex_unlock(&p2_mtx);
+        pthread_mutex_unlock(&sh->enemy_mtx);
+        pthread_mutex_unlock(&local_pos_mtx);
 
         sem_post(&sh->sem_turn_done);
     }
@@ -210,12 +257,12 @@ void* enemy_controller_thread(void* arg) {
 
         pthread_mutex_lock(&p2_mtx);
         todos_terminaron = 1;
-        pedido_en_este_turno = 0;
+        enemigo_del_pedido = -1;
         pthread_mutex_unlock(&p2_mtx);
 
         int vivos_en_este_turno = 0;
         for (int i = 0; i < NUM_ENEMIES; i++) {
-            if (sh->enemy_alive[i]) {
+            if (esta_vivo(sh, i)) {
                 vivos_en_este_turno++;
                 sem_post(&sem_start_enemy[i]); 
             }
@@ -245,6 +292,14 @@ void run_enemies(shared_t *sh) {
         snprintf(ruta, sizeof(ruta), "%s/enemy_%d_moves.txt", sh->data_dir, i + 1);
         archivos[i] = fopen(ruta, "r");
     }
+
+    /* Posiciones iniciales: las cargó P0 desde map.txt */
+    pthread_mutex_lock(&sh->enemy_mtx);
+    for (int i = 0; i < NUM_ENEMIES; i++) {
+        pos_x[i] = sh->enemy_x[i];
+        pos_y[i] = sh->enemy_y[i];
+    }
+    pthread_mutex_unlock(&sh->enemy_mtx);
 
     sem_init(&sem_enemy_done, 0, 0);
     sem_init(&sem_tracker_done, 0, 0);
