@@ -97,11 +97,14 @@ void* bomber_publisher_thread(void *arg){
     int final_done = local_moves_done;
     pthread_mutex_unlock(&pos_mtx);
 
+    /* Publicar en memoria compartida con su mutex (P2, P3 y P4 la leen) */
+    pthread_mutex_lock(&shared_mem->bomber_mtx);
     shared_mem->bomber_x = final_x;
     shared_mem->bomber_y = final_y;
     if (final_done){
 	shared_mem->bomber_moves_done = 1;
     }
+    pthread_mutex_unlock(&shared_mem->bomber_mtx);
 
     sem_post(&sem_publish_done);
 
@@ -112,8 +115,10 @@ void* bomber_publisher_thread(void *arg){
 
 void* movement_executor_thread(void *arg){
     (void)arg;
+    pthread_mutex_lock(&shared_mem->bomber_mtx);   /* posición inicial (la cargó P0) */
     local_nx = shared_mem->bomber_x;
     local_ny = shared_mem->bomber_y;
+    pthread_mutex_unlock(&shared_mem->bomber_mtx);
 
     while (1) {
 	sem_wait(&shared_mem->sem_bomber_turn);
@@ -168,14 +173,20 @@ void* movement_executor_thread(void *arg){
 	nx++;
 	break;
 	case INS_BOMB:
+	/* Buzón de bomba: sección crítica con mutex compartido (sección 8.1) */
+	pthread_mutex_lock(&shared_mem->bomb_req_mtx);
 	shared_mem->bomb_request_x = local_nx;
 	shared_mem->bomb_request_y = local_ny;
 	shared_mem->bomb_request_active = 1;
+	pthread_mutex_unlock(&shared_mem->bomb_req_mtx);
 	turno_gastado = 1;
 	continue;
 	case INS_SET_PRIORITY:
+	/* Buzón de prioridad: sección crítica con mutex compartido (sección 10) */
+	pthread_mutex_lock(&shared_mem->prio_mtx);
 	shared_mem->pending_priority_bomber = ins.value;
 	shared_mem->priority_request_active = 1;
+	pthread_mutex_unlock(&shared_mem->prio_mtx);
 	turno_gastado = 1;
 	continue;
 	case INS_INVALID:
@@ -183,7 +194,12 @@ void* movement_executor_thread(void *arg){
 	printf("[P1] Aviso: Linea invalida descartada\n");
 	continue;
 	}
-    if (is_walkable(shared_mem, nx, ny)){
+    /* P3 modifica el mapa: leerlo con map_mtx */
+    pthread_mutex_lock(&shared_mem->map_mtx);
+    int se_puede = is_walkable(shared_mem, nx, ny);
+    pthread_mutex_unlock(&shared_mem->map_mtx);
+
+    if (se_puede){
 	pthread_mutex_lock(&pos_mtx);
 	local_nx = nx;
 	local_ny = ny;
