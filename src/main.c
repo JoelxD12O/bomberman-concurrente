@@ -10,8 +10,10 @@
  *   6. Correr P0 (el árbitro) en este mismo proceso.
  *   7. Cuando el juego termina: esperar a los hijos y liberar todo.
  *
- * Uso: ./bomberman <carpeta_del_caso> <max_ticks> [-r]
- *   ej: ./bomberman tests/caso_ejemplo 20
+ * Uso: ./bomberman <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r]
+ *   ej: ./bomberman tests/caso_ejemplo 20          (prioridades 20 y 30, sección 9)
+ *   ej: ./bomberman tests/caso_ejemplo 9 40 30     (ejemplo 8.5)
+ *   ej: ./bomberman tests/caso_ejemplo 9 40 30 -r  (con renderer)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +22,10 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include "procs.h"
+
+/* Modo -r (bonus P4). Se declaran en procs.h. */
+int hay_renderer = 0;
+int fd_terminal  = 1;    /* 1 = la salida estándar (la terminal) */
 
 /* Crea los semáforos y mutex. El segundo argumento de sem_init en 1 significa
  * "este semáforo lo van a usar varios PROCESOS", no solo hilos. */
@@ -86,12 +92,28 @@ int is_game_over(shared_t *sh)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        printf("uso: %s <carpeta_del_caso> <max_ticks> [-r]\n", argv[0]);
+        printf("uso: %s <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r]\n", argv[0]);
         return 1;
     }
 
+    /* Prioridades iniciales (sección 9). Se pueden cambiar con dos números
+     * después de max_ticks, para probar otros casos (por ejemplo, el 8.5). */
+    int prio_bomber = 20;
+    int prio_enemy  = 30;
+    int siguiente   = 3;     /* posición del siguiente argumento por revisar */
+    if (argc >= 5 && strcmp(argv[3], "-r") != 0) {
+        prio_bomber = atoi(argv[3]);
+        prio_enemy  = atoi(argv[4]);
+        siguiente   = 5;
+        if (prio_bomber < PRIO_MIN || prio_bomber > PRIO_MAX ||
+            prio_enemy  < PRIO_MIN || prio_enemy  > PRIO_MAX) {
+            printf("error: las prioridades deben estar entre %d y %d\n", PRIO_MIN, PRIO_MAX);
+            return 1;
+        }
+    }
+
     int usar_renderer = 0;
-    if (argc > 3 && strcmp(argv[3], "-r") == 0) {
+    if (argc > siguiente && strcmp(argv[siguiente], "-r") == 0) {
         usar_renderer = 1;
     }
 
@@ -114,8 +136,8 @@ int main(int argc, char **argv)
     strncpy(sh->data_dir, argv[1], sizeof(sh->data_dir) - 1);
     sh->max_ticks        = atoi(argv[2]);
     sh->bomber_lives     = INITIAL_LIVES;
-    sh->prioridad_bomber = 20;   /* sección 9 */
-    sh->prioridad_enemy  = 30;
+    sh->prioridad_bomber = prio_bomber;
+    sh->prioridad_enemy  = prio_enemy;
     sh->enemies_alive    = NUM_ENEMIES;
     for (int i = 0; i < NUM_ENEMIES; i++) {
         sh->enemy_alive[i] = 1;
@@ -130,6 +152,19 @@ int main(int argc, char **argv)
     if (load_map(sh, ruta_mapa) != 0) {
         printf("error: mapa inválido en %s\n", ruta_mapa);
         return 1;
+    }
+
+    /* ---- Modo -r: la terminal queda solo para el dibujo de P4 ----
+     * dup guarda una copia de la terminal para P4. freopen manda todo lo que
+     * imprimen P0..P3 (printf) al archivo partida.log, así no se mezcla con el dibujo. */
+    if (usar_renderer) {
+        hay_renderer = 1;
+        fd_terminal  = dup(STDOUT_FILENO);
+        if (freopen("partida.log", "w", stdout) == NULL) {
+            printf("error: no se pudo crear partida.log\n");
+            return 1;
+        }
+        setvbuf(stdout, NULL, _IOLBF, 0);
     }
 
     /* ---- 5. Crear los procesos hijos ----

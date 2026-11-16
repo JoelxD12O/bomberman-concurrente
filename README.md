@@ -52,6 +52,15 @@ grep -n "TODO(Abigail)" src/*.c      # cambia el nombre por el tuyo
    ./bomberman tests/caso_ejemplo 5
    ```
    Tiene que mostrar `[P0] tick 1 -> P1`, `[P1] turno...` y el mapa varias veces.
+
+   Uso completo: `./bomberman <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r]`. Las prioridades son opcionales (por defecto 20 y 30, sección 9):
+   ```bash
+   ./bomberman tests/caso_ejemplo 9 40 30              # ejemplo 8.5 del enunciado
+   ./bomberman tests/caso_ejemplo 12 30 30             # prioridades iguales: se alternan
+   ./bomberman tests/caso_victoria 20 40 30            # fin por victoria
+   ./bomberman tests/caso_derrota 20 40 30             # fin por derrota
+   ./bomberman tests/caso_sin_movimientos 30 30 30     # fin por falta de movimientos
+   ```
 3. **Ejemplos para entender la idea** (5 minutos, en `ejemplos/`):
    ```bash
    cd ejemplos
