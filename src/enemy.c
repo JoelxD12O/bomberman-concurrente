@@ -1,22 +1,43 @@
+/*
+ * enemy.c — P2: los 4 enemigos (secciones 2.3 y 6). Mariel.
+ *
+ * Cada enemigo tiene su propio archivo (enemy_1_moves.txt ... enemy_4_moves.txt).
+ * Cada vez que P0 le da el turno a P2, cada enemigo VIVO ejecuta UNA instrucción.
+ *
+ * Reglas:
+ *   - Un enemigo muerto (sh->enemy_alive[i] == 0) ya no se mueve.
+ *   - Dos enemigos SÍ pueden estar en la misma celda.
+ *   - BOMB no vale para enemigos (es una instrucción inválida).
+ *   - P2 no quita vidas: solo avisa que hubo choque (collision_...) y P0 resta la vida.
+ *   - SET_PRIORITY deja un pedido para P0 (pending_priority_enemy). Si dos
+ *     enemigos lo piden en el mismo turno, gana el de número mayor.
+ *
+ * SEMANA 1: escribir la lógica dentro del while de abajo (sin hilos, sin mutex).
+ * SEMANA 2: dividirla en 8 hilos:
+ *   enemy_controller_thread   recibe el turno y despierta a los enemigos vivos
+ *   enemy_thread x 4          uno por enemigo, cada uno lee su archivo
+ *   bomber_tracker_thread     guarda una copia de la posición de Bomberman
+ *   collision_thread          revisa si algún enemigo tocó a Bomberman
+ *   enemy_publisher_thread    copia las posiciones a la memoria compartida
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include "procs.h"
 
-// Estructura para pasar datos a los hilos de los enemigos
+// --- ESTRUCTURAS Y VARIABLES GLOBALES (Protegidas por Mutex) ---
+
 typedef struct {
     int id;
     shared_t *sh;
     FILE *archivo;
 } enemy_data_t;
 
-// 1. MUTEX ESPECÍFICOS SOLICITADOS EN EL ISSUE
 pthread_mutex_t local_pos_mtx = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t enemy_mtx = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t events_mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t p2_mtx = PTHREAD_MUTEX_INITIALIZER;
 
-// 2. SEMÁFOROS "GO" Y "DONE"
 sem_t sem_start_enemy[NUM_ENEMIES];
 sem_t sem_enemy_done;
 sem_t sem_start_tracker;
@@ -29,6 +50,10 @@ int todos_terminaron = 1;
 int pedido_en_este_turno = 0;
 int running = 1;
 
+// Copias de posición rastreadas de Bomberman
+int copia_bx = 0;
+int copia_by = 0;
+
 // --- HILOS DE LOS ENEMIGOS ---
 void* enemy_thread(void* arg) {
     enemy_data_t *data = (enemy_data_t*)arg;
@@ -39,29 +64,34 @@ void* enemy_thread(void* arg) {
 
     while (1) {
         sem_wait(&sem_start_enemy[i]);
-        if (!running) break; // Salida limpia al terminar
+        
+        pthread_mutex_lock(&p2_mtx);
+        int seguir = running;
+        pthread_mutex_unlock(&p2_mtx);
+        
+        if (!seguir) break; 
 
         while (archivo != NULL && fgets(linea, sizeof(linea), archivo) != NULL) {
-            pthread_mutex_lock(&enemy_mtx);
+            pthread_mutex_lock(&p2_mtx);
             todos_terminaron = 0;
-            pthread_mutex_unlock(&enemy_mtx);
+            pthread_mutex_unlock(&p2_mtx);
             
             linea[strcspn(linea, "\r\n")] = 0;
             instruction ins = parse_instruction(linea);
 
             if (ins.type == INS_INVALID || ins.type == INS_BOMB) {
-                continue;
+                continue; 
             }
 
             if (ins.type == INS_SET_PRIORITY) {
-                pthread_mutex_lock(&enemy_mtx);
+                pthread_mutex_lock(&p2_mtx);
                 if (ins.value > pedido_en_este_turno) {
                     pedido_en_este_turno = ins.value;
                     sh->pending_priority_enemy = ins.value;
                     sh->enemy_priority_request_active = 1;
                 }
-                pthread_mutex_unlock(&enemy_mtx);
-                continue;
+                pthread_mutex_unlock(&p2_mtx);
+                break; 
             }
 
             int dx = 0, dy = 0;
@@ -92,12 +122,17 @@ void* bomber_tracker_thread(void* arg) {
     shared_t *sh = (shared_t*)arg;
     while (1) {
         sem_wait(&sem_start_tracker);
-        if (!running) break;
-        // Lectura de posiciones locales
+        
+        pthread_mutex_lock(&p2_mtx);
+        int seguir = running;
+        pthread_mutex_unlock(&p2_mtx);
+        if (!seguir) break;
+
         pthread_mutex_lock(&local_pos_mtx);
-        int bx = sh->bomber_x;
-        int by = sh->bomber_y;
+        copia_bx = sh->bomber_x;
+        copia_by = sh->bomber_y;
         pthread_mutex_unlock(&local_pos_mtx);
+        
         sem_post(&sem_tracker_done);
     }
     return NULL;
@@ -108,16 +143,20 @@ void* collision_thread(void* arg) {
     shared_t *sh = (shared_t*)arg;
     while (1) {
         sem_wait(&sem_start_collision);
-        if (!running) break;
+        
+        pthread_mutex_lock(&p2_mtx);
+        int seguir = running;
+        pthread_mutex_unlock(&p2_mtx);
+        if (!seguir) break;
 
         pthread_mutex_lock(&local_pos_mtx);
         for (int i = 0; i < NUM_ENEMIES; i++) {
-            if (sh->enemy_alive[i] && sh->enemy_x[i] == sh->bomber_x && sh->enemy_y[i] == sh->bomber_y) {
-                pthread_mutex_lock(&events_mtx);
+            if (sh->enemy_alive[i] && sh->enemy_x[i] == copia_bx && sh->enemy_y[i] == copia_by) {
+                pthread_mutex_lock(&sh->events_mtx);
                 sh->collision_detected = 1;
                 sh->collision_tick = sh->global_tick;
                 sh->collision_enemy_id = i;
-                pthread_mutex_unlock(&events_mtx);
+                pthread_mutex_unlock(&sh->events_mtx);
             }
         }
         pthread_mutex_unlock(&local_pos_mtx);
@@ -131,13 +170,17 @@ void* enemy_publisher_thread(void* arg) {
     shared_t *sh = (shared_t*)arg;
     while (1) {
         sem_wait(&sem_start_publisher);
-        if (!running) break;
+        
+        pthread_mutex_lock(&p2_mtx);
+        int seguir = running;
+        pthread_mutex_unlock(&p2_mtx);
+        if (!seguir) break;
 
-        pthread_mutex_lock(&enemy_mtx);
+        pthread_mutex_lock(&p2_mtx);
         if (todos_terminaron) {
             sh->enemy_moves_done = 1;
         }
-        pthread_mutex_unlock(&enemy_mtx);
+        pthread_mutex_unlock(&p2_mtx);
 
         sem_post(&sh->sem_turn_done);
     }
@@ -150,9 +193,11 @@ void* enemy_controller_thread(void* arg) {
     while (1) {
         sem_wait(&sh->sem_enemy_turn);
         
-        // 3. AL TERMINAR, DESPERTAR A TODOS PARA QUE SALGAN (Que ninguno quede colgado)
         if (is_game_over(sh)) {
+            pthread_mutex_lock(&p2_mtx);
             running = 0;
+            pthread_mutex_unlock(&p2_mtx);
+            
             for (int i = 0; i < NUM_ENEMIES; i++) sem_post(&sem_start_enemy[i]);
             sem_post(&sem_start_tracker);
             sem_post(&sem_start_collision);
@@ -160,12 +205,11 @@ void* enemy_controller_thread(void* arg) {
             break; 
         }
 
-        pthread_mutex_lock(&enemy_mtx);
+        pthread_mutex_lock(&p2_mtx);
         todos_terminaron = 1;
         pedido_en_este_turno = 0;
-        pthread_mutex_unlock(&enemy_mtx);
+        pthread_mutex_unlock(&p2_mtx);
 
-        // 4. EL CONTROLLER DESPIERTA SOLO A LOS VIVOS...
         int vivos_en_este_turno = 0;
         for (int i = 0; i < NUM_ENEMIES; i++) {
             if (sh->enemy_alive[i]) {
@@ -174,12 +218,10 @@ void* enemy_controller_thread(void* arg) {
             }
         }
         
-        // ... Y ESPERA A TODOS (los que despertó)
         for (int i = 0; i < vivos_en_este_turno; i++) {
             sem_wait(&sem_enemy_done);
         }
 
-        // Fases restantes
         sem_post(&sem_start_tracker);
         sem_post(&sem_start_collision);
         sem_wait(&sem_tracker_done);
