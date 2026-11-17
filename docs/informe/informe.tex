@@ -1,0 +1,501 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla,es-nodecimaldot]{babel}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,babel}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{corregido}{HTML}{2F6FD1}
+\definecolor{falla}{HTML}{E07020}
+\definecolor{tinta}{HTML}{1B2236}
+\definecolor{suave}{HTML}{5A6378}
+\definecolor{p0c}{HTML}{F3D9C6}
+\definecolor{p1c}{HTML}{D4E2FA}
+\definecolor{p2c}{HTML}{EADBF3}
+\definecolor{p3c}{HTML}{FBE7B5}
+\definecolor{p4c}{HTML}{D2EEDF}
+\definecolor{memc}{HTML}{1F2640}
+
+\newcommand{\cod}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\datos}{../../experimentos/datos}
+
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true,
+  frame=single,rulecolor=\color{black!25},backgroundcolor=\color{black!3},
+  keywordstyle=\color{corregido}\bfseries,commentstyle=\color{suave}\itshape,
+  language=C,showstringspaces=false,
+  literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1 {ñ}{{\~n}}1
+           {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1 {Ú}{{\'U}}1 {—}{{---}}1}
+
+% estilo común de las gráficas de dispersión
+\pgfplotsset{
+  disp/.style={width=\linewidth,height=6.2cm,xlabel={Iteración},
+    grid=major,grid style={black!8},axis line style={black!40},
+    tick label style={font=\small,color=suave},label style={font=\small},
+    legend style={font=\small,draw=none,fill=white,fill opacity=0.85,text opacity=1},
+    legend cell align=left,scaled y ticks=false,
+    yticklabel style={/pgf/number format/1000 sep={\,}}},
+  corr/.style={only marks,mark=*,mark size=1.3pt,color=corregido},
+  fall/.style={only marks,mark=triangle*,mark size=1.6pt,color=falla},
+}
+
+\title{\textbf{Bomberman Concurrente en C con POSIX}\\[4pt]
+\large Arquitectura híbrida de procesos e hilos, experimentación y condiciones de carrera}
+\author{}
+\date{}
+
+\begin{document}
+
+% ------------------------------------------------------------------ portada
+\begin{titlepage}
+\centering
+\includegraphics[width=4.2cm]{../UTEC-Logo.jpg}\par
+\vspace{1.2cm}
+{\LARGE\bfseries Bomberman Concurrente en C con POSIX\par}
+\vspace{0.4cm}
+{\large Arquitectura híbrida de procesos e hilos, experimentación\\ y condiciones de carrera\par}
+\vspace{1.8cm}
+{\large Curso\par}
+{\Large IS2021 --- Sistemas Computacionales\par}
+\vspace{1.2cm}
+{\large Autores\par}
+\vspace{0.2cm}
+Cayllahua Hilario, Joel Modesto\\
+Cabrera Pujaico, Danilo Sebastian\\
+Cabanillas Ventocilla, Abigail Jaslin\\
+Reyes Neyra, Mariel Azucena\par
+\vspace{1.2cm}
+Docente: Adanaqué Infante, Luz Antuanet\par
+\vspace{0.6cm}
+Repositorio GitHub\\
+\url{https://github.com/JoelxD12O/bomberman-concurrente}\par
+\vfill
+Barranco, Perú\\ 2026-2
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ------------------------------------------------------------------ 1
+\section{Introducción}
+
+Bomberman es un juego de laberinto en el que un personaje recorre un mapa de celdas, coloca bombas con temporizador para destruir bloques y eliminar enemigos, y debe alejarse de sus propias explosiones. En cada instante coexisten acciones que modifican un mismo estado: el jugador se desplaza o coloca una bomba, los enemigos cambian de posición, los temporizadores avanzan, las explosiones alteran el mapa y se actualizan las vidas y el puntaje. A diferencia de un laberinto estático, el mapa deja de ser un recurso de solo lectura y pasa a ser un recurso compartido que varios procesos leen mientras otro lo modifica.
+
+El proyecto implementa Bomberman como una arquitectura híbrida de procesos e hilos bajo POSIX. Cinco procesos creados con \cod{fork} se comunican exclusivamente a través de una región de memoria compartida obtenida con \cod{mmap}:
+
+\begin{itemize}
+  \item \textbf{P0, planificador}: avanza el reloj global, decide en cada tick qué proceso actúa según prioridades dinámicas y es el único que modifica vidas, puntaje y condición de fin.
+  \item \textbf{P1, Bomberman}: lee sus instrucciones desde archivo, mueve al personaje y solicita bombas.
+  \item \textbf{P2, enemigos}: controla a los cuatro enemigos en hilos independientes y detecta el contacto con Bomberman.
+  \item \textbf{P3, bombas}: administra los temporizadores, resuelve las explosiones y las reacciones en cadena.
+  \item \textbf{P4, renderizador} (bonus): dibuja cada tick en la terminal, sincronizado con P0.
+\end{itemize}
+
+En total el sistema ejecuta 18 hilos de trabajo (4 en P0, 3 en P1, 8 en P2 y 3 en P3). El acceso simultáneo al estado compartido expone el sistema a condiciones de carrera, lecturas sucias e interbloqueos. Este informe describe cómo se mitigaron con semáforos POSIX, mutex compartidos entre procesos y un esquema de ejecución por turnos, y demuestra empíricamente cada mitigación contrastando una versión protegida con otra sin protección.
+
+% ------------------------------------------------------------------ 2
+\section{Background}
+
+Silberschatz et al.\ (2018) y Tanenbaum y Bos (2015) definen formalmente los procesos como espacios de direcciones aislados y los hilos como flujos de ejecución que comparten el espacio de su proceso. Ambos textos caracterizan el problema de la sección crítica: cuando dos flujos ejecutan una secuencia leer--modificar--escribir sobre un dato común sin exclusión mutua, el resultado depende del intercalado y se producen actualizaciones perdidas o lecturas de un estado a medio escribir.
+
+Las primitivas de sincronización empleadas tienen origen en el trabajo de Dijkstra (1965), que introdujo el semáforo como contador con operaciones atómicas de espera y señal. Un semáforo inicializado en cero sirve para imponer orden entre flujos (uno espera la señal del otro), mientras que uno inicializado en $N$ limita el acceso a $N$ recursos, como los casilleros libres de una cola acotada en el problema productor--consumidor.
+
+Coffman, Elphick y Shoshani (1971) establecieron las cuatro condiciones necesarias para un interbloqueo: exclusión mutua, retención y espera, ausencia de expropiación y espera circular. El proyecto elimina la última imponiendo un orden global de adquisición de los mutex.
+
+La realización de estos conceptos sobre Linux sigue a Stevens y Rago (2013) y a Kerrisk (2010): \cod{fork} para crear procesos, \cod{mmap} con \cod{MAP_SHARED} para que padre e hijos vean la misma memoria, semáforos con \cod{pshared = 1} y mutex con el atributo \cod{PTHREAD_PROCESS_SHARED} para coordinar procesos distintos. Finalmente, la verificación usa ThreadSanitizer (Serebryany e Iskhodzhanov, 2009), un detector dinámico de condiciones de carrera entre hilos de un mismo proceso.
+
+% ------------------------------------------------------------------ 3
+\section{Metodología}
+
+\subsection{Esquema arquitectónico del sistema}
+
+La Tabla~\ref{tab:procesos} resume la responsabilidad de cada proceso, sus hilos y el mecanismo que lo coordina. La Figura~\ref{fig:arquitectura} muestra cómo todos interactúan únicamente a través de la memoria compartida.
+
+\begin{table}[H]
+\centering\small
+\caption{Procesos, hilos y mecanismos de coordinación.}
+\label{tab:procesos}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Proceso & Responsabilidad & Hilos & Mecanismo principal \\
+\midrule
+P0 & Reloj global, turnos, buzones de prioridad, vidas, puntaje y fin & \cod{tick}, \cod{scheduler}, \cod{signal}, \cod{event} & Semáforos internos en relevo; semáforos de turno hacia P1--P4 \\
+P1 & Mover a Bomberman y solicitar bombas & \cod{movement_reader}, \cod{movement_executor}, \cod{bomber_publisher} & Cola acotada (mutex + dos semáforos) \\
+P2 & Mover a los 4 enemigos y detectar contacto & \cod{controller}, 4 $\times$ \cod{enemy}, \cod{tracker}, \cod{collision}, \cod{publisher} & Un semáforo por enemigo y barrera de fin de movimiento \\
+P3 & Temporizadores, explosiones y cadena & \cod{bomb_controller}, \cod{fuse}, \cod{explosion} & Semáforos locales en orden fijo y \cod{bombs_mtx} \\
+P4 & Dibujar cada tick (bonus) & principal & \cod{sem_render} y \cod{sem_turn_done} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  proc/.style={draw=#1!60!black,fill=#1,rounded corners=4pt,align=left,font=\small,inner sep=6pt,text width=3.9cm},
+  flecha/.style={Latex-Latex,thick,draw=suave},
+  font=\small]
+\node[draw=none,fill=memc,text=white,rounded corners=6pt,align=center,inner sep=10pt,text width=4.6cm] (mem)
+  {\textbf{Memoria compartida} (\cod{mmap})\\[2pt]\footnotesize mapa, posiciones, buzones,\\ eventos, semáforos y mutex\\ \cod{PTHREAD_PROCESS_SHARED}};
+\node[proc=p0c,above=1.1cm of mem] (p0) {\textbf{P0 · planificador}\\ \footnotesize tick · scheduler · signal · event};
+\node[proc=p1c,left=1.2cm of mem,yshift=1.2cm] (p1) {\textbf{P1 · Bomberman}\\ \footnotesize reader · executor · publisher};
+\node[proc=p2c,right=1.2cm of mem,yshift=1.2cm] (p2) {\textbf{P2 · enemigos}\\ \footnotesize controller · 4 enemy · tracker\\ collision · publisher};
+\node[proc=p3c,left=1.2cm of mem,yshift=-1.4cm] (p3) {\textbf{P3 · bombas}\\ \footnotesize bomb\_controller · fuse · explosion};
+\node[proc=p4c,right=1.2cm of mem,yshift=-1.4cm] (p4) {\textbf{P4 · renderizador} (bonus)\\ \footnotesize solo lectura};
+\draw[flecha] (p0) -- (mem);
+\draw[flecha] (p1.east) -- (mem);
+\draw[flecha] (p2.west) -- (mem);
+\draw[flecha] (p3.east) -- (mem);
+\draw[-Latex,thick,draw=suave] (mem) -- (p4.west);
+\node[font=\footnotesize,text=suave,align=center,below=0.25cm of mem,yshift=-1.7cm] {\cod{fork}: P0 crea a P1--P4 después de inicializar la memoria};
+\end{tikzpicture}
+\caption{Arquitectura: cinco procesos que se comunican solo a través de la memoria compartida.}
+\label{fig:arquitectura}
+\end{figure}
+
+P0 crea la región compartida con \cod{mmap(MAP_SHARED | MAP_ANONYMOUS)} antes del \cod{fork}; sin \cod{MAP_SHARED}, cada hijo recibiría una copia privada y los cambios no serían visibles entre procesos. Los semáforos y mutex que coordinan procesos se alojan dentro de esa región:
+
+\begin{lstlisting}
+sem_init(&sh->sem_bomber_turn, 1, 0);      /* pshared = 1: entre procesos */
+pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+pthread_mutex_init(&sh->map_mtx, &attr);
+\end{lstlisting}
+
+\subsection{Memoria compartida y regla de un solo escritor}
+
+Cada variable compartida tiene un único proceso que la escribe; en los buzones y eventos, el receptor solo limpia la bandera (Tabla~\ref{tab:memoria}). Esta regla elimina por diseño las actualizaciones perdidas sobre el estado crítico: P1 no cambia su prioridad, solo deja un pedido; P2 y P3 no restan vidas, solo publican eventos.
+
+\begin{table}[H]
+\centering\small
+\caption{Variables compartidas, escritor y mutex que las protege.}
+\label{tab:memoria}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}X l l@{}}
+\toprule
+Variables & Escribe & Mutex \\
+\midrule
+\cod{global_tick}, \cod{game_over}, \cod{bomber_lives}, \cod{score}, \cod{enemy_alive[]} & P0 & \cod{state_mtx} \\
+\cod{prioridad_bomber}, \cod{prioridad_enemy} & P0 & \cod{prio_mtx} \\
+\cod{bomber_x}, \cod{bomber_y}, \cod{bomber_moves_done} & P1 & \cod{bomber_mtx} \\
+\cod{pending_priority_bomber}, \cod{priority_request_active} & P1; P0 limpia & \cod{prio_mtx} \\
+\cod{bomb_request_x/y}, \cod{bomb_request_active} & P1; P3 limpia & \cod{bomb_req_mtx} \\
+\cod{enemy_x[]}, \cod{enemy_y[]}, \cod{enemy_moves_done} & P2 & \cod{enemy_mtx} \\
+\cod{pending_priority_enemy}, \cod{enemy_priority_request_active} & P2; P0 limpia & \cod{prio_mtx} \\
+\cod{collision_detected}, \cod{collision_tick}, \cod{collision_enemy_id} & P2; P0 limpia & \cod{events_mtx} \\
+\cod{map_grid}, \cod{active_bombs}, \cod{blocks_destroyed} & P0 al iniciar; P3 & \cod{map_mtx} \\
+\cod{blast_hit_bomber}, \cod{blast_hit_enemy[]} & P3; P0 limpia & \cod{events_mtx} \\
+\cod{bomb_x[]}, \cod{bomb_y[]}, \cod{bomb_timer[]} (bonus P4) & P3 & \cod{map_mtx} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Cuando un hilo necesita más de un mutex, los adquiere siempre en el orden global
+\cod{map} $\rightarrow$ \cod{bomber} $\rightarrow$ \cod{enemy} $\rightarrow$ \cod{bomb_req} $\rightarrow$ \cod{prio} $\rightarrow$ \cod{events} $\rightarrow$ \cod{state}, precedidos por los mutex locales de cada proceso. Con un orden total no puede formarse una espera circular, la cuarta condición de Coffman.
+
+\subsection{Flujo lógico y sincronización en cada tick}
+
+\subsubsection{Paso 1: inicio y planificación}
+\cod{tick_thread} incrementa \cod{global_tick}. \cod{scheduler_thread} aplica los buzones de prioridad pendientes (rango válido 1--49; fuera de rango se descartan) y compara las prioridades de P1 y P2: gana el mayor valor y, ante empate, se alterna en Round Robin. El turno se guarda en \cod{turno_actual}, protegido por su propio mutex.
+
+\subsubsection{Paso 2: fase de acción}
+\cod{signal_thread} hace \cod{sem_post} sobre \cod{sem_bomber_turn} o \cod{sem_enemy_turn} y queda bloqueado en \cod{sem_turn_done} hasta que el proceso autorizado termina. En P1, \cod{movement_executor_thread} consume una instrucción de la cola y \cod{bomber_publisher_thread} publica la posición. En P2, el controlador despierta solo a los enemigos vivos con un semáforo por enemigo y espera a todos (barrera); después el rastreador copia la posición de Bomberman y, recién entonces, \cod{collision_thread} compara posiciones; finalmente el publicador copia las posiciones internas a la memoria compartida.
+
+\subsubsection{Paso 3: fase de bombas}
+P3 actúa en todos los ticks, por lo que el temporizador depende del tick global y no de la prioridad de quien colocó la bomba. Su controlador encadena, en este orden, la limpieza del fuego (\cod{explosion_thread}), el avance de temporizadores (\cod{fuse_thread}), las explosiones con reacción en cadena (\cod{explosion_thread}) y el registro de la bomba pedida. La cadena se resuelve marcando con temporizador cero las bombas alcanzadas y repitiendo el recorrido, de modo que la tabla nunca se modifica durante su propio recorrido.
+
+\subsubsection{Paso 4: cierre del tick}
+\cod{event_thread} procesa los eventos de colisión y explosión (Bomberman pierde como máximo una vida por tick), actualiza enemigos vivos y puntaje, evalúa las cuatro condiciones de fin y, con la opción \cod{-r}, espera a que P4 termine de dibujar antes de devolver el relevo a \cod{tick_thread}.
+
+La Figura~\ref{fig:secuencia} muestra el encadenamiento de semáforos dentro de un tick.
+
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[x=1cm,y=1.15cm,font=\small,
+  carril/.style={font=\small\bfseries,anchor=east},
+  bloque/.style={draw=#1!60!black,fill=#1,rounded corners=2pt,minimum height=0.62cm,inner sep=3pt,font=\footnotesize},
+  senal/.style={-Latex,thick,draw=tinta},
+  etiq/.style={font=\scriptsize,anchor=west,inner sep=2pt}]
+\foreach \y/\n in {4/P0,3/P1,2/P2,1/P3,0/P4} { \node[carril] at (0,\y) {\n}; \draw[black!12] (0.2,\y) -- (14.6,\y); }
+\node[bloque=p0c] (a) at (1.0,4) {tick};
+\node[bloque=p0c] (b) at (2.8,4) {scheduler};
+\node[bloque=p0c,minimum width=1.3cm] (c) at (4.7,4) {signal};
+\draw[p0c!70!black,line width=3pt] (c.east) -- (8.4,4);
+\node[font=\scriptsize,text=suave,anchor=south] at (7.3,4.08) {signal espera};
+\node[bloque=p1c,minimum width=2.6cm] (d) at (5.6,3) {executor + publisher};
+\node[bloque=p3c,minimum width=4.1cm] (e) at (10.3,1) {limpiar · avanzar · explotar · registrar};
+\node[bloque=p0c,minimum width=1.3cm] (f) at (12.0,4) {event};
+\node[bloque=p4c,minimum width=1.4cm] (g) at (13.7,0) {dibujar};
+\draw[senal] (a) -- (b);
+\draw[senal] (b) -- (c);
+\draw[senal] (4.7,3.69) -- (4.7,3.31) node[etiq,pos=0.5,anchor=east]{\cod{sem_bomber_turn}};
+\draw[senal] (6.6,3.31) -- (6.6,3.88) node[etiq,pos=0.5]{\cod{sem_turn_done}};
+\draw[senal] (8.4,3.88) -- (8.4,1.31) node[etiq,pos=0.5]{\cod{sem_bomb_turn}};
+\draw[senal] (12.0,1.31) -- (12.0,3.69) node[etiq,pos=0.5,anchor=east]{\cod{sem_turn_done}};
+\draw[senal] (f.east) -| (13.7,0.31) node[etiq,pos=0.75]{\cod{sem_render}};
+\node[font=\scriptsize,text=suave,anchor=west] at (0.3,4.62)
+  {relevo interno de P0 (\cod{pshared = 0}): \cod{sem_toca_tick} $\to$ \cod{sem_toca_decidir} $\to$ \cod{sem_toca_senal} $\to$ \cod{sem_toca_eventos}};
+\node[font=\scriptsize,text=suave,fill=white,inner sep=1pt] at (2.4,2) {P2 no actúa en este tick};
+\end{tikzpicture}}
+\caption{Secuencia de semáforos en un tick con turno de P1. Solo un proceso del juego actúa a la vez.}
+\label{fig:secuencia}
+\end{figure}
+
+\subsection{Demostración temporal: prioridades y Round Robin}
+
+La Figura~\ref{fig:gantt} reproduce el ejemplo 8.5 del enunciado con el caso \cod{tests/caso_ejemplo} y prioridades iniciales 40 (P1) y 30 (P2). P1 recibe todos los turnos hasta que su pedido \cod{SET_PRIORITY 25} del tick~7 se aplica al inicio del tick~8; desde ahí el turno pasa a P2. La ejecución real coincide tick por tick con la tabla del enunciado: Bomberman en $(2,1)$, $(3,1)$, $(3,1)$, $(2,1)$, $(1,1)$, $(1,2)$ y $(1,2)$; bomba registrada en $(3,1)$ en el tick~3 y explosión en el tick~6 con dos bloques destruidos.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1.45cm,y=0.75cm,font=\small]
+\foreach \t in {1,...,9} \node[font=\footnotesize,text=suave] at (\t,4.7) {T\t};
+\foreach \y/\n in {4/P0,3/P1,2/P2,1/P3} \node[anchor=east,font=\small\bfseries] at (0.45,\y) {\n};
+\foreach \t in {1,...,9} {
+  \fill[p0c] (\t-0.45,3.7) rectangle (\t+0.45,4.3);
+  \fill[p3c] (\t-0.45,0.7) rectangle (\t+0.45,1.3);
+}
+\foreach \t in {1,...,7} \fill[p1c] (\t-0.45,2.7) rectangle (\t+0.45,3.3);
+\foreach \t in {8,9} \fill[p2c] (\t-0.45,1.7) rectangle (\t+0.45,2.3);
+\node[font=\scriptsize] at (3,3) {BOMB};
+\node[font=\scriptsize] at (7,3) {SET 25};
+\node[font=\scriptsize] at (3,1) {registra};
+\node[font=\scriptsize] at (4,1) {3$\to$2};
+\node[font=\scriptsize] at (5,1) {2$\to$1};
+\node[font=\scriptsize,text=falla!80!black] at (6,1) {\textbf{explota}};
+\node[font=\scriptsize] at (7,1) {limpia};
+\node[font=\scriptsize] at (8,4) {aplica 25};
+\node[font=\scriptsize,text=suave] at (4.5,0.15) {prioridad de P1: 40 en T1--T7, 25 desde T8; P2: 30};
+\end{tikzpicture}
+\caption{Diagrama temporal del ejemplo 8.5 (\cod{./bomberman tests/caso_ejemplo 9 40 30}).}
+\label{fig:gantt}
+\end{figure}
+
+Con prioridades iguales (\cod{./bomberman tests/caso_ejemplo 12 30 30}) el planificador alterna P1, P2, P1\dots; P1 coloca la bomba en el tick~5, ejecuta un único \cod{LEFT} en el tick~7 y la explosión del tick~8 lo encuentra en $(2,1)$, por lo que pierde una vida, tal como anticipa el enunciado. El resultado del juego depende de la planificación y no solo de los movimientos.
+
+\subsection{Renderizador P4 (bonus)}
+
+P4 dibuja cada tick en la terminal. Para que la visualización esté sincronizada con la lógica, \cod{event_thread} hace \cod{sem_post(sem_render)} y espera \cod{sem_turn_done} antes de iniciar el tick siguiente; P4 copia el estado tomando los mutex en el orden global, dibuja y responde. Para evitar el parpadeo no borra la pantalla: reposiciona el cursor con la secuencia \cod{\033[H} y sobrescribe. Con \cod{-r}, la salida de P0--P3 se redirige a \cod{partida.log} para que no se superponga con el dibujo. La cuenta regresiva de cada bomba se obtiene de la tabla pública \cod{bomb_x[]}, \cod{bomb_y[]}, \cod{bomb_timer[]} que publica P3.
+
+% ------------------------------------------------------------------ 4
+\section{Experimentación}
+
+\subsection{Metodología de medición}
+
+Cada mitigación se demostró con el mismo protocolo, aplicado sobre mecanismos tomados del código del proyecto (carpeta \cod{experimentos/} del repositorio):
+
+\begin{enumerate}
+  \item \textbf{Dos versiones del mismo código}, obtenidas con banderas de compilación: la versión corregida y una versión con falla (\cod{-DSIN_ESPACIOS}, \cod{-DSIN_MUTEX}, \cod{-DSIN_ORDEN}) que retira la primitiva. En el experimento~5 las dos versiones son el juego completo en dos commits del repositorio.
+  \item \textbf{Un parámetro medible} que delata la falla: instrucciones perdidas, lecturas rotas, choques no detectados o terminación.
+  \item \textbf{Repetición}: 500 iteraciones por versión en los experimentos 1--3, 50 en el 4 y 30 por escenario en el 5.
+  \item \textbf{Criterio}: la versión con falla produce resultados incorrectos y, en general, distintos entre iteraciones; la corregida produce siempre el resultado correcto (desviación estándar cero).
+  \item \textbf{Recursos}: tiempo, uso de CPU y memoria máxima residente con \cod{/usr/bin/time -v}, en un contenedor \cod{gcc:13} con 8 núcleos.
+\end{enumerate}
+
+Cuando la ventana crítica es demasiado estrecha para manifestarse con frecuencia, se amplificó con \cod{sched_yield()} dentro de ella, lo que obliga al planificador del sistema operativo a ceder la CPU en el peor momento. Esta técnica no crea la condición de carrera: solo la vuelve reproducible.
+
+\subsection{Experimento 1 --- Cola de instrucciones de P1 (productor--consumidor)}
+
+\textbf{Falla.} \cod{movement_reader_thread} carga el archivo de movimientos en una cola circular de 100 casilleros, y \cod{movement_executor_thread} consume una instrucción por turno. En la primera versión de P1 la cola tenía mutex y un semáforo de elementos, pero ningún semáforo de espacios libres: con un archivo de más de 100 líneas, el lector daba la vuelta a la cola y sobrescribía instrucciones aún no ejecutadas.
+
+\textbf{Técnica.} Un segundo semáforo, \cod{sem_espacios}, inicializado en el tamaño de la cola: el lector espera un casillero libre y el ejecutor lo libera al consumir.
+
+\textbf{Resultado.} Con un archivo de 300 instrucciones, la versión sin \cod{sem_espacios} pierde entre 199 y 200 instrucciones en el 100\,\% de las iteraciones (media 199,1; $\sigma=0{,}2$): el lector es mucho más rápido que el ejecutor, por lo que la pérdida es casi determinista. La versión corregida ejecuta las 300 instrucciones en todas las iteraciones ($\sigma=0$).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[disp,ylabel={Instrucciones perdidas},ymin=-10,ymax=230,legend style={at={(0.98,0.5)},anchor=east}]
+\addplot[fall] table[x=iteracion,y=valor,col sep=comma]{\datos/e1_sin.csv};
+\addlegendentry{Sin \cod{sem_espacios} (falla)}
+\addplot[corr] table[x=iteracion,y=valor,col sep=comma]{\datos/e1_con.csv};
+\addlegendentry{Con \cod{sem_espacios} (corregido)}
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 1: instrucciones perdidas por iteración (300 instrucciones, cola de 100).}
+\label{fig:e1}
+\end{figure}
+
+\subsection{Experimento 2 --- Buzón de bomba entre procesos}
+
+\textbf{Falla.} P1 escribe el pedido de bomba en dos campos, \cod{bomb_request_x} y \cod{bomb_request_y}, y P3 lo lee y lo limpia desde otro proceso. Sin exclusión mutua, P3 puede leer un campo nuevo junto con uno viejo: una lectura rota que colocaría la bomba en una celda que nadie pidió.
+
+\textbf{Técnica.} Escritura y lectura dentro de \cod{bomb_req_mtx}, alojado en la memoria compartida con \cod{PTHREAD_PROCESS_SHARED} (sección~8.1 del enunciado). El experimento usa la estructura \cod{shared_t} real del proyecto: un proceso hijo escribe 20\,000 pedidos $(k,k)$ y el padre cuenta las lecturas con $x \neq y$.
+
+\textbf{Resultado.} Sin el mutex, el 100\,\% de las iteraciones presenta lecturas rotas, con alta dispersión (media 17\,491, rango 4--19\,834, $\sigma=3078$). Con el mutex, cero lecturas rotas en las 500 iteraciones. Este es el caso que ThreadSanitizer no puede detectar, porque ocurre entre dos procesos distintos.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[disp,ylabel={Lecturas rotas},ymin=-800,ymax=21500,legend pos=south east]
+\addplot[fall] table[x=iteracion,y=valor,col sep=comma]{\datos/e2_sin.csv};
+\addlegendentry{Sin \cod{bomb_req_mtx} (falla)}
+\addplot[corr] table[x=iteracion,y=valor,col sep=comma]{\datos/e2_con.csv};
+\addlegendentry{Con \cod{bomb_req_mtx} (corregido)}
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 2: lecturas rotas del buzón por iteración (20\,000 pedidos entre dos procesos).}
+\label{fig:e2}
+\end{figure}
+
+\subsection{Experimento 3 --- Orden entre el rastreador y la detección de colisiones (P2)}
+
+\textbf{Falla.} Al final del turno de P2, \cod{bomber_tracker_thread} copia la posición de Bomberman y \cod{collision_thread} la compara con la de cada enemigo. En la versión integrada inicial el controlador despertaba a ambos hilos a la vez; si \cod{collision_thread} corría primero, usaba la copia del turno anterior y no detectaba un choque real.
+
+\textbf{Técnica.} Imponer orden con semáforos: el controlador despierta al rastreador, espera su \cod{sem_tracker_done} y recién después despierta a \cod{collision_thread}. El escenario fuerza un choque en cada uno de 2000 turnos.
+
+\textbf{Resultado.} Sin orden, todas las iteraciones pierden choques, con fuerte no determinismo (media 106,7, rango 30--867, $\sigma=86{,}5$). Con orden, cero choques perdidos. El mutex \cod{local_pos_mtx} protege cada acceso individual, por lo que ThreadSanitizer tampoco reporta nada: el defecto no es de exclusión mutua sino de orden, y solo un semáforo lo corrige.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[disp,ylabel={Choques no detectados},ymin=-30,ymax=920,legend pos=north east]
+\addplot[fall] table[x=iteracion,y=valor,col sep=comma]{\datos/e3_sin.csv};
+\addlegendentry{Rastreador y colisión a la vez (falla)}
+\addplot[corr] table[x=iteracion,y=valor,col sep=comma]{\datos/e3_con.csv};
+\addlegendentry{Rastreador antes que colisión (corregido)}
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 3: choques no detectados por iteración (2000 turnos con choque).}
+\label{fig:e3}
+\end{figure}
+
+\subsection{Experimento 4 --- Orden de adquisición de mutex (interbloqueo)}
+
+\textbf{Falla.} Dos hilos necesitan \cod{map_mtx} y \cod{bomber_mtx} a la vez, como \cod{explotar()} de P3 y \cod{print_map()} de P0. En la primera semana, dos funciones de P3 tomaban sus mutex en órdenes distintos. Si un hilo retiene \cod{map_mtx} y espera \cod{bomber_mtx} mientras el otro retiene \cod{bomber_mtx} y espera \cod{map_mtx}, se produce una espera circular.
+
+\textbf{Técnica.} Orden global de adquisición definido en \cod{shared.h}.
+
+\textbf{Resultado.} Con órdenes opuestos, 48 de 50 ejecuciones (96\,\%) quedan bloqueadas hasta el límite de 1\,s; las dos restantes terminan solo porque el intercalado no llegó a formar el ciclo. Con el orden global, las 50 terminan en 0,03\,s en promedio. La Figura~\ref{fig:e4} muestra la fracción de ejecuciones terminadas en función del tiempo.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[disp,xlabel={Tiempo (s)},ylabel={Fracción de ejecuciones terminadas},
+  xmin=0,xmax=1,ymin=-0.03,ymax=1.05,legend style={at={(0.98,0.5)},anchor=east}]
+\addplot[const plot,very thick,color=falla,dashed] table[x=tiempo,y=fraccion,col sep=comma]{\datos/e4_sin_ecdf.csv};
+\addlegendentry{Órdenes opuestos (falla)}
+\addplot[const plot,very thick,color=corregido] table[x=tiempo,y=fraccion,col sep=comma]{\datos/e4_con_ecdf.csv};
+\addlegendentry{Orden global (corregido)}
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 4: curva de terminación (ECDF) con límite de 1\,s; 50 ejecuciones por versión.}
+\label{fig:e4}
+\end{figure}
+
+\subsection{Experimento 5 --- Cierre ordenado del juego real}
+
+\textbf{Falla.} Al integrar las ramas se detectaron dos cuelgues en el juego completo. (a) Si \cod{bomber_moves.txt} tiene más de 100 líneas, al terminar la partida el lector de P1 queda bloqueado en \cod{sem_espacios} con la cola llena; P1 nunca termina y P0 espera indefinidamente en \cod{waitpid}. (b) Si a Bomberman se le acaban las instrucciones mientras conserva la prioridad más alta, su hilo ejecutor terminaba y P0 quedaba esperando un \cod{sem_turn_done} que nunca llegaba.
+
+\textbf{Técnica.} (a) Al recibir \cod{game_over}, el ejecutor hace \cod{sem_post(sem_espacios)} para despertar al lector, que comprueba el fin del juego y sale. (b) Sin instrucciones, el ejecutor sigue respondiendo cada turno hasta el fin del juego.
+
+\textbf{Experimento.} Se compiló el juego completo en el commit \cod{fb8f114} (antes del arreglo) y en la versión actual, y se ejecutó cada escenario 30 veces con un límite de 2\,s.
+
+\textbf{Resultado.} La versión anterior se cuelga en el 100\,\% de las ejecuciones de ambos escenarios, con 0\,\% de uso de CPU: los procesos están bloqueados de forma pasiva en un \cod{sem_wait}, no en una espera activa. La versión actual termina el 100\,\% de las veces en 0,07\,s (escenario a) y 0,03\,s (escenario b).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[disp,xlabel={Tiempo (s)},ylabel={Fracción de ejecuciones terminadas},
+  xmin=0,xmax=2,ymin=-0.03,ymax=1.05,legend style={at={(0.98,0.5)},anchor=east}]
+\addplot[const plot,very thick,color=falla,dashed] table[x=tiempo,y=fraccion,col sep=comma]{\datos/e5a_antes_ecdf.csv};
+\addlegendentry{Commit \cod{fb8f114} (falla), escenarios a y b}
+\addplot[const plot,very thick,color=corregido] table[x=tiempo,y=fraccion,col sep=comma]{\datos/e5a_ahora_ecdf.csv};
+\addlegendentry{Versión actual, escenario a}
+\addplot[const plot,very thick,color=corregido!55!black,densely dotted] table[x=tiempo,y=fraccion,col sep=comma]{\datos/e5b_ahora_ecdf.csv};
+\addlegendentry{Versión actual, escenario b}
+\end{axis}
+\end{tikzpicture}
+\caption{Experimento 5: curva de terminación del juego completo con límite de 2\,s; 30 ejecuciones por escenario y versión. Las curvas de la versión anterior coinciden en cero.}
+\label{fig:e5}
+\end{figure}
+
+\subsection{Consumo de recursos}
+
+La Tabla~\ref{tab:recursos} muestra que, salvo en los interbloqueos, el tiempo, la CPU y la memoria no delatan la falla: una condición de carrera no agota recursos, corrompe el dato. En los experimentos 1 a 3 la versión con falla es incluso más rápida, porque no espera. En los interbloqueos, el discriminante sí es el tiempo, y la CPU cercana a cero confirma una espera pasiva.
+
+\begin{table}[H]
+\centering\small
+\caption{Métrica discriminante y recursos medios por versión (\cod{/usr/bin/time -v}).}
+\label{tab:recursos}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Experimento & Versión & Métrica (media) & Tiempo (s) & CPU (\%) & Memoria (KB) \\
+\midrule
+1 Cola P1 & corregida & 0 perdidas & 0,052 & 22 & 1536 \\
+          & con falla & 199,1 perdidas & 0,032 & 13 & 1536 \\
+2 Buzón & corregida & 0 rotas & 0,023 & 126 & 1536 \\
+        & con falla & 17\,491 rotas & 0,017 & 126 & 1536 \\
+3 Orden P2 & corregida & 0 perdidos & 0,320 & 77 & 1536 \\
+           & con falla & 106,7 perdidos & 0,185 & 91 & 1536 \\
+4 Mutex & corregida & 0\,\% colgadas & 0,030 & 130 & 1536 \\
+        & con falla & 96\,\% colgadas & 0,963 & 1 & 1408 \\
+5a Cierre & actual & 0\,\% colgadas & 0,066 & 52 & 1664 \\
+          & \cod{fb8f114} & 100\,\% colgadas & 2,001 & 0 & 1408 \\
+5b Cierre & actual & 0\,\% colgadas & 0,025 & 60 & 1664 \\
+          & \cod{fb8f114} & 100\,\% colgadas & 2,000 & 0 & 1408 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Validación funcional del juego completo}
+
+Además de los experimentos, el juego integrado se verificó con casos de prueba que cubren cada regla y cada condición de fin (Tabla~\ref{tab:casos}). Todos los casos se ejecutaron también con ThreadSanitizer (\cod{make tsan}): 30 ejecuciones sin avisos. Las pruebas de validación de entrada (filas de distinto largo, símbolos no permitidos, mapas sin \cod{P} o con dos \cod{A}, archivos vacíos, \cod{max_ticks} no numérico, prioridades fuera de rango) terminan con un mensaje de error claro sin iniciar el juego.
+
+\begin{table}[H]
+\centering\small
+\caption{Casos de prueba del juego completo.}
+\label{tab:casos}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}X l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Caso & Comando & Resultado \\
+\midrule
+Ejemplo 8.5 & \cod{caso_ejemplo 9 40 30} & Idéntico a la tabla del enunciado \\
+Prioridades iguales & \cod{caso_ejemplo 12 30 30} & Alternancia; una vida perdida en el tick 8 \\
+Victoria & \cod{caso_victoria 20 40 30} & Tick 7, puntaje 400 \\
+Derrota & \cod{caso_derrota 20 40 30} & Tick 10, 0 vidas \\
+Sin movimientos & \cod{caso_sin_movimientos 30 30 30} & Tick 6 \\
+Demostración completa & \cod{caso_demo 16 40 30 -r} & Cadena, bloque, 2 enemigos eliminados, choque, Round Robin, inanición \\
+Desempate de \cod{SET_PRIORITY} & enemigos 1 y 2 piden 45 y 10 & Prevalece el enemigo 2 (10/10 ejecuciones) \\
+Contacto enemigo--Bomberman & 200 ejecuciones & 200/200 detectados \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ------------------------------------------------------------------ 5
+\section{Conclusiones}
+
+\subsection{Qué se construyó}
+Se implementó Bomberman como un sistema concurrente de cinco procesos y 18 hilos que se comunican únicamente por memoria compartida. P0 actúa como autoridad única del estado crítico: P1, P2 y P3 solo publican pedidos y eventos, y P0 decide turnos, prioridades, vidas, puntaje y fin del juego. La regla de un solo escritor por variable elimina por diseño las actualizaciones perdidas sobre ese estado, y las condiciones de carrera restantes se cierran con la primitiva adecuada a cada recurso.
+
+\subsection{Síntesis técnica}
+Los cinco experimentos muestran que cada primitiva resuelve un problema distinto: el semáforo de espacios acota la cola (exclusión de capacidad), el mutex compartido evita lecturas rotas entre procesos (exclusión mutua), el semáforo de orden garantiza que la colisión use una posición vigente (orden), el orden global de mutex impide la espera circular (interbloqueo) y la liberación ordenada permite que todos los procesos terminen (disponibilidad). En las condiciones de carrera el discriminante es la corrección del dato y no los recursos; en los interbloqueos lo es el tiempo, con un consumo de CPU cercano a cero.
+
+Dos resultados merecen destacarse. Primero, los experimentos 2 y 3 presentan defectos que ThreadSanitizer no detecta: el primero ocurre entre procesos y el segundo es un defecto de orden con cada acceso individual protegido. Un análisis limpio de ThreadSanitizer es necesario pero no suficiente. Segundo, el turno de P0 reduce la concurrencia entre procesos pero no la elimina; por ello toda variable compartida entre procesos se protege con su mutex compartido aunque el diseño por turnos haga improbable el acceso simultáneo.
+
+\subsection{Limitaciones y recomendaciones}
+Las versiones con falla se construyeron deliberadamente, retirando la primitiva con banderas de compilación, para observar el defecto; un número finito de iteraciones no cubre todos los intercalados posibles, por lo que se amplificó la ventana crítica con \cod{sched_yield()} cuando fue necesario. Como mejoras se proponen el envejecimiento (\emph{aging}) de prioridades para mitigar la inanición, que el enunciado deja como opcional, y pruebas de estrés con mapas de mayor tamaño.
+
+% ------------------------------------------------------------------ 6
+\section{Referencias}
+
+\begin{itemize}
+  \item Coffman, E. G., Elphick, M., \& Shoshani, A. (1971). System deadlocks. \emph{ACM Computing Surveys}, 3(2), 67--78.
+  \item Dijkstra, E. W. (1965). \emph{Cooperating sequential processes} (EWD-123). Technological University, Eindhoven.
+  \item Kerrisk, M. (2010). \emph{The Linux Programming Interface}. No Starch Press.
+  \item Serebryany, K., \& Iskhodzhanov, T. (2009). ThreadSanitizer: data race detection in practice. En \emph{Proceedings of the Workshop on Binary Instrumentation and Applications} (pp. 62--71). ACM.
+  \item Silberschatz, A., Galvin, P. B., \& Gagne, G. (2018). \emph{Operating System Concepts} (10.\textsuperscript{a} ed.). Wiley.
+  \item Stevens, W. R., \& Rago, S. A. (2013). \emph{Advanced Programming in the UNIX Environment} (3.\textsuperscript{a} ed.). Addison-Wesley.
+  \item Tanenbaum, A. S., \& Bos, H. (2015). \emph{Modern Operating Systems} (4.\textsuperscript{a} ed.). Pearson.
+\end{itemize}
+
+\end{document}

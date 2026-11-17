@@ -13,3 +13,9 @@ ej2
 .DS_Store
 Thumbs.db
 partida.log
+
+# LaTeX y experimentos
+*.aux
+*.log
+*.toc
+experimentos/bin/
