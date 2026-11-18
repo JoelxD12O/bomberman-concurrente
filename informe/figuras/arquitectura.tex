@@ -1,156 +1,262 @@
 % Figura 1: arquitectura operacional y flujo de sincronizacion (TikZ)
+% Capas: capa0 = marcos de columna, background = paneles internos, main = cajas y flechas
+\colorlet{grisA}{black!60}
+\colorlet{grisB}{black!70}
+\colorlet{azulS}{colP0!60!blue}
+\pgfdeclarelayer{capa0}
+\pgfsetlayers{capa0,background,main}
+\tikzset{
+  archivo/.pic={
+    \draw[line width=0.55pt, fill=white] (-0.47,-0.55) -- (-0.47,0.55) -- (0.27,0.55) -- (0.47,0.35) -- (0.47,-0.55) -- cycle;
+    \draw[line width=0.55pt] (0.27,0.55) -- (0.27,0.35) -- (0.47,0.35);
+  }
+}
 \begin{tikzpicture}[
-    font=\fontsize{6.6}{7.6}\selectfont,
-    >={Stealth[length=1.6mm]},
-    node distance=2.2mm,
-    paso/.style={draw=#1!70!black, rounded corners=1.5pt, fill=white, text width=3.15cm,
-                 align=center, inner sep=2pt, minimum height=4.6mm, line width=0.45pt},
-    paso/.default=gray,
-    titulo/.style={text width=3.5cm, align=center, font=\bfseries\fontsize{7.6}{9}\selectfont,
-                   text=white, fill=#1, inner sep=3pt, rounded corners=1.5pt},
-    sub/.style={text width=3.15cm, align=center, font=\itshape\fontsize{6.3}{7.3}\selectfont,
-                text=black!65},
-    decision/.style={draw=#1!70!black, diamond, aspect=2.6, fill=white, inner sep=0.6pt,
-                     align=center, line width=0.45pt},
-    sincro/.style={draw=#1, dashed, rounded corners=1.5pt, fill=white, text width=3.15cm,
-                   align=left, inner sep=2.5pt, font=\ttfamily\fontsize{6}{7}\selectfont},
-    flujo/.style={->, line width=0.55pt, black!75},
-    sem/.style={->, line width=0.7pt, colP0},
-    dato/.style={->, line width=0.6pt, colMem, densely dashed},
-    memgrupo/.style={draw=colMem!80!black, rounded corners=1.5pt, fill=white, text width=3.5cm,
-                     align=left, inner sep=2.5pt, font=\fontsize{6.2}{7.3}\selectfont, minimum height=17mm},
+    font=\sffamily\fontsize{6.6}{7.9}\selectfont,
+    every node/.append style={execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
+    >={Stealth[length=1.7mm]},
+    node distance=2.5mm,
+    caja/.style={draw=#1, rounded corners=1.5pt, fill=white, text width=3.0cm, align=center,
+                 inner sep=2.2pt, minimum height=5.2mm, line width=0.55pt},
+    caja/.default=grisB,
+    cab/.style={draw=#1, fill=#1!12, text=#1!80!black, font=\sffamily\bfseries\fontsize{8}{9.5}\selectfont,
+                minimum width=3.6cm, minimum height=6.8mm, align=center, rounded corners=1.5pt, line width=0.8pt},
+    hijo/.style={draw=#1!60, fill=#1!6, rounded corners=1.5pt, text width=2.5cm, align=center,
+                 inner sep=2pt, font=\sffamily\fontsize{6.2}{7.3}\selectfont},
+    panelt/.style={font=\sffamily\bfseries\fontsize{6.9}{8}\selectfont, text=#1!85!black},
+    decision/.style={draw=#1, diamond, aspect=2.3, fill=white, inner sep=0.4pt, align=center,
+                     line width=0.6pt, font=\sffamily\fontsize{6.3}{7.3}\selectfont},
+    term/.style={draw=black!75, rounded corners=2.7mm, fill=white, minimum width=1.7cm,
+                 minimum height=5.4mm, line width=0.7pt},
+    sinc/.style={draw=#1, dashed, rounded corners=2pt, fill=white, text width=2.95cm, align=center,
+                 inner sep=2.6pt, font=\sffamily\fontsize{6.2}{7.6}\selectfont},
+    var/.style={font=\sffamily\itshape\fontsize{6.1}{7.4}\selectfont, text=colP0!70!blue},
+    aviso/.style={draw=#1, rounded corners=1.5pt, fill=#1!8, text width=2.9cm, align=center,
+                  inner sep=2.2pt, text=#1!85!black, font=\sffamily\fontsize{6.2}{7.3}\selectfont},
+    flujo/.style={->, line width=0.6pt, black!80},
+    sem/.style={->, line width=0.8pt, colP0!60!blue},
+    dato/.style={->, line width=0.7pt, colMem!85!black},
+    arch/.style={->, line width=0.6pt, black!75, densely dashed},
+    etq/.style={font=\sffamily\fontsize{6}{7}\selectfont, align=center},
 ]
-% ---------------------------------------------------------------- columnas
-\def\cx{4.05}
-% 0: entrada -------------------------------------------------------------
-\node[titulo=black!60] (h0) at (0,0) {1. Usuario y archivos};
-\node[paso, below=3mm of h0] (u1) {Ejecuta\\\texttt{./bomberman <caso>}\\\texttt{<max\_ticks> [pB pE] [-r]}};
-\node[paso, below=of u1] (u2) {\texttt{map.txt}\\(\texttt{X \# O P A B C D})};
-\node[paso, below=of u2] (u3) {\texttt{bomber\_moves.txt}};
-\node[paso, below=of u3] (u4) {\texttt{enemy\_1..4\_moves.txt}};
-\node[paso, below=of u4] (u5) {Instrucciones: \texttt{UP DOWN LEFT RIGHT BOMB SET\_PRIORITY n}};
-\node[sub, below=3mm of u5] (u6) {Una línea inválida se descarta y se lee la siguiente (no gasta el turno).};
+% ============================================================== columnas (centros)
+\def\cA{0}    \def\cB{4.7} \def\cC{9.4}  \def\cD{14.1}
+\def\cE{18.8} \def\cF{23.5} \def\cG{28.2} \def\cH{32.4}
 
-% 1: P0 -----------------------------------------------------------------
-\node[titulo=colP0] (h1) at (\cx,0) {2. P0 · Scheduler (padre)};
-\node[sub, below=1mm of h1] (a0) {A) Inicialización (\texttt{main.c})};
-\node[paso=colP0, below=1mm of a0] (a1) {\texttt{mmap(MAP\_SHARED)}: crea \texttt{shared\_t}};
-\node[paso=colP0, below=of a1] (a2) {\texttt{sem\_init(.., 1, ..)} y mutex \texttt{PROCESS\_SHARED}};
-\node[paso=colP0, below=of a2] (a3) {\texttt{load\_map}: valida el mapa};
-\node[paso=colP0, below=of a3] (a4) {\texttt{fork()} $\times$3: P1, P2, P3 (+P4 con \texttt{-r})};
-\node[sub, below=1.6mm of a4] (b0) {B) Ciclo: posta entre 4 hilos};
-\node[paso=colP0, below=1mm of b0] (b1) {\texttt{tick\_thread}: \texttt{global\_tick++}};
-\node[paso=colP0, below=of b1] (b2) {\texttt{scheduler\_thread}: aplica buzones y elige P1 o P2 (Round Robin si empatan)};
-\node[paso=colP0, below=of b2] (b3) {\texttt{signal\_thread}: \texttt{sem\_post} al elegido y luego a P3; espera \texttt{sem\_turn\_done}};
-\node[paso=colP0, below=of b3] (b4) {\texttt{event\_thread}: vidas, enemigos, puntaje (único escritor)};
-\node[decision=colP0, below=2.2mm of b4] (b5) {¿fin?};
-\node[paso=colP0, below=2.2mm of b5] (b6) {Libera: \texttt{sem\_post} a todos los turnos};
-\node[paso=colP0, below=of b6] (b7) {\texttt{pthread\_join}, \texttt{waitpid}, \texttt{munmap}};
+% ---------------------------------------------------------------- 1. Usuario y archivos
+\node[cab=grisA] (h1) at (\cA,0) {1. Usuario y archivos};
+\node[term, below=4mm of h1] (u0) {Inicio};
+\node[caja, below=of u0] (u1) {Ejecuta \texttt{./bomberman}\\con la carpeta del caso\\y el máximo de ticks};
+\node[caja, below=of u1] (u2) {Opcional: prioridades iniciales y \texttt{-r} para ver el tablero};
+\node[panelt=grisB, below=6mm of u2] (ua) {A) Archivos de entrada};
+\pic at ($(ua.south)+(-1.08,-0.9)$) {archivo};
+\pic at ($(ua.south)+( 0.0,-0.9)$) {archivo};
+\pic at ($(ua.south)+( 1.08,-0.9)$) {archivo};
+\node[etq, text width=0.85cm, font=\sffamily\fontsize{5.6}{6.5}\selectfont] (f1) at ($(ua.south)+(-1.08,-0.95)$) {Mapa\\del caso};
+\node[etq, text width=0.85cm, font=\sffamily\fontsize{5.6}{6.5}\selectfont] (f2) at ($(ua.south)+( 0.0,-0.95)$) {Movim.\\de\\{\fontsize{5}{6}\selectfont Bomberman}};
+\node[etq, text width=0.85cm, font=\sffamily\fontsize{5.6}{6.5}\selectfont] (f3) at ($(ua.south)+( 1.08,-0.95)$) {Movim.\\de los 4\\enemigos};
+\coordinate (fA) at ($(ua.south)+(-1.6,-1.55)$);
+\coordinate (fB) at ($(ua.south)+( 1.6,-1.55)$);
+\node[caja, below=19mm of ua] (u3) {Instrucciones: \texttt{UP}, \texttt{DOWN}, \texttt{LEFT}, \texttt{RIGHT}, \texttt{BOMB} y \texttt{SET\_PRIORITY n}};
+\node[etq, text width=3.0cm, text=black!65, below=1.5mm of u3] (u4) {\itshape Una línea inválida se descarta y se lee la siguiente.};
+\begin{scope}[on background layer]
+  \node[draw=black!45, fill=white, rounded corners=3pt, inner sep=1.4mm, fit=(ua)(fA)(fB)] (pa) {};
+\end{scope}
+\draw[flujo] (u0) -- (u1);
+\draw[flujo] (u1) -- (u2);
 
-% 2: P1 -----------------------------------------------------------------
-\node[titulo=colP1] (h2) at (2*\cx,0) {3. P1 · Bomberman};
-\node[sub, below=1mm of h2] (p0) {Proceso hijo · 3 hilos};
-\node[paso=colP1, below=1mm of p0] (p1) {\texttt{movement\_reader}: lee el archivo y llena la cola[100]};
-\node[paso=colP1, below=of p1] (p2) {\texttt{movement\_executor}: espera \texttt{sem\_bomber\_turn}};
-\node[paso=colP1, below=of p2] (p3) {Saca \textbf{una} instrucción de la cola};
-\node[decision=colP1, below=2.2mm of p3] (p4) {¿tipo?};
-\node[paso=colP1, below=2.2mm of p4] (p5) {Mover si \texttt{is\_walkable}; \texttt{BOMB} y \texttt{SET\_PRIORITY} dejan un pedido};
-\node[paso=colP1, below=of p5] (p6) {\texttt{bomber\_publisher}: publica \texttt{bomber\_x/y}};
-\node[paso=colP1, below=of p6] (p7) {\texttt{sem\_post(sem\_turn\_done)}};
-\node[sincro=colP1, below=3mm of p7] (p8) {\textbf{Sincronización P1}\\sem\_bomber\_turn\\queue\_mtx, sem\_items\\sem\_espacios, pos\_mtx};
-
-% 3: P2 -----------------------------------------------------------------
-\node[titulo=colP2] (h3) at (3*\cx,0) {4. P2 · Enemigos};
-\node[sub, below=1mm of h3] (e0) {Proceso hijo · 8 hilos};
-\node[paso=colP2, below=1mm of e0] (e1) {\texttt{enemy\_controller}: espera \texttt{sem\_enemy\_turn}};
-\node[paso=colP2, below=of e1] (e2) {\texttt{sem\_post(sem\_start\_enemy[i])} a cada vivo};
-\node[draw=colP2, dashed, rounded corners=1.5pt, text width=3.15cm, align=center, inner sep=2pt, below=of e2, fill=colP2!6] (e3)
-     {\textcolor{colP2!80!black}{\itshape ejecución paralela interna}\\[1pt]
-      \fbox{A}\,\fbox{B}\,\fbox{C}\,\fbox{D}\ \texttt{enemy\_thread}};
-\node[paso=colP2, below=of e3] (e4) {Barrera: \texttt{sem\_wait(sem\_enemy\_done)} $\times$ vivos};
-\node[paso=colP2, below=of e4] (e5) {\texttt{bomber\_tracker} copia (x, y) de Bomberman};
-\node[paso=colP2, below=of e5] (e6) {\texttt{collision\_thread}: publica \texttt{collision\_*}};
-\node[paso=colP2, below=of e6] (e7) {\texttt{enemy\_publisher}: \texttt{sem\_turn\_done}};
-\node[sub, below=1mm of e7] (e7b) {P2 no resta vidas: solo publica el evento.};
-\node[sincro=colP2, below=1.5mm of e7b] (e8) {\textbf{Sincronización P2}\\sem\_enemy\_turn\\sem\_start\_enemy[4]\\sem\_enemy\_done (barrera)};
-
-% 4: P3 -----------------------------------------------------------------
-\node[titulo=colP3] (h4) at (4*\cx,0) {5. P3 · Bombas};
-\node[sub, below=1mm of h4] (q0) {Proceso hijo · 3 hilos};
-\node[paso=colP3, below=1mm of q0] (q1) {\texttt{bomb\_controller}: espera \texttt{sem\_bomb\_turn} (todos los ticks)};
-\node[paso=colP3, below=of q1] (q2) {1. Limpia el fuego: \texttt{*} $\to$ \texttt{O}};
-\node[paso=colP3, below=of q2] (q3) {2. \texttt{fuse\_thread}: \texttt{timer--}};
-\node[paso=colP3, below=of q3] (q4) {3. \texttt{explosion\_thread}: cruz de alcance 2, cadena, bloques, \texttt{blast\_*}};
-\node[paso=colP3, below=of q4] (q5) {4. Registra el pedido de P1 (máx.\ 2 bombas)};
-\node[paso=colP3, below=of q5] (q6) {\texttt{sem\_post(sem\_turn\_done)}};
-\node[sincro=colP3, below=3mm of q6] (q7) {\textbf{Sincronización P3}\\sem\_bomb\_turn, bombs\_mtx\\sem\_fuse\_go / \_done\\sem\_explosion\_go / \_done};
-
-% 5: P4 -----------------------------------------------------------------
-\node[titulo=colP4] (h5) at (5*\cx,0) {6. P4 · Render (bonus)};
-\node[sub, below=1mm of h5] (r0) {Proceso hijo, solo con \texttt{-r}};
-\node[paso=colP4, below=1mm of r0] (r1) {Espera \texttt{sem\_render}};
-\node[paso=colP4, below=of r1] (r2) {\texttt{tomar\_foto}: copia el estado con los mutex en orden};
-\node[paso=colP4, below=of r2] (r3) {Dibuja con códigos ANSI (sin parpadeo)};
-\node[paso=colP4, below=of r3] (r4) {\texttt{sem\_post(sem\_turn\_done)}};
-\node[sub, below=1.5mm of r4] (r5) {Los mensajes [P0]..[P3] van a \texttt{partida.log}};
-\node[draw=black!40, rounded corners=1.5pt, text width=3.15cm, align=left, inner sep=3pt, below=5mm of r5, font=\fontsize{6.3}{7.6}\selectfont] (ley)
- {\textbf{Leyenda}\\[1pt]
-  \tikz\draw[flujo](0,0)--(0.5,0); flujo dentro del proceso\\
-  \tikz\draw[sem](0,0)--(0.5,0); semáforo entre procesos\\
-  \tikz\draw[dato](0,0)--(0.5,0); lectura/escritura en \texttt{shared\_t}\\
-  \tikz\draw[dashed, rounded corners=1pt](0,0) rectangle (0.5,0.2); primitivas del proceso};
-
-% ---------------------------------------------------------------- flechas internas
-\foreach \a/\b in {u1/u2,a1/a2,a2/a3,a3/a4,b1/b2,b2/b3,b3/b4,b4/b5,b5/b6,b6/b7,
-                   p1/p2,p2/p3,p3/p4,p4/p5,p5/p6,p6/p7,
-                   e1/e2,e2/e3,e3/e4,e4/e5,e5/e6,e6/e7,
-                   q1/q2,q2/q3,q3/q4,q4/q5,q5/q6,r1/r2,r2/r3,r3/r4}
+% ---------------------------------------------------------------- 2. P0
+\node[cab=colP0] (h2) at (\cB,0) {2. P0 · Planificador};
+\node[panelt=colP0, below=3.5mm of h2] (pa0) {A) Inicialización};
+\node[caja=colP0, below=1.5mm of pa0] (a1) {Reserva la memoria compartida};
+\node[caja=colP0, below=of a1] (a2) {Inicializa semáforos y mutex entre procesos};
+\node[caja=colP0, below=of a2] (a3) {Carga y valida el mapa};
+\node[caja=colP0, below=of a3] (a4) {Crea P1, P2 y P3 con \texttt{fork()} (y P4 con \texttt{-r})};
+\node[panelt=colP0, below=6mm of a4] (pb0) {B) Ciclo del planificador};
+\node[caja=colP0, below=1.5mm of pb0] (b1) {Incrementa el tick global};
+\node[caja=colP0, below=of b1] (b2) {Aplica cambios de prioridad y elige turno (prioridad / Round Robin)};
+\node[caja=colP0, below=of b2] (b3) {Habilita al elegido y luego a P3 con \texttt{sem\_post()}};
+\node[caja=colP0, below=of b3] (b4) {Espera el fin de cada turno};
+\node[caja=colP0, below=of b4] (b5) {Aplica eventos: vidas, enemigos y puntaje};
+\node[decision=colP0, below=3mm of b5, xshift=-6mm] (b6) {¿Fin del\\juego?};
+\node[sinc=colP0, text width=1.1cm, right=0.8mm of b6, inner sep=1.6pt, font=\sffamily\itshape\fontsize{5.7}{6.7}\selectfont, text=colP0!70!blue] (bc)
+     {Derrota, victoria, sin movim. o máx. de ticks};
+\node[caja=colP0, below=4mm of b6, xshift=6mm] (b7) {Cierre limpio: despierta a todos los procesos};
+\node[caja=colP0, below=of b7] (b8) {\texttt{waitpid()}: espera a los hijos};
+\node[caja=colP0, below=of b8] (b9) {Libera la memoria compartida};
+\node[term, below=of b9] (b10) {Fin};
+\begin{scope}[on background layer]
+  \node[draw=colP0!60, fill=white, rounded corners=3pt, inner sep=1.4mm, fit=(pa0)(a1)(a4)] {};
+  \node[draw=colP0!60, fill=white, rounded corners=3pt, inner sep=1.4mm, fit=(pb0)(b1)(b10)(bc)] {};
+\end{scope}
+\foreach \a/\b in {a1/a2,a2/a3,a3/a4,b1/b2,b2/b3,b3/b4,b4/b5,b7/b8,b8/b9,b9/b10}
     \draw[flujo] (\a) -- (\b);
-\draw[flujo] (a4.south) -- (b0.north);
-\draw[flujo] (b5.west) -- ++(-0.35,0) |- (b1.west) node[pos=0.25, left, font=\fontsize{6}{7}\selectfont] {no};
-\node[font=\fontsize{6}{7}\selectfont, right=0.5mm of b5.south, anchor=north west, yshift=0.5mm] {sí};
+\draw[flujo] (b5.south -| b6.north) -- (b6.north);
+\draw[flujo] (b6.south) -- (b6.south |- b7.north) node[pos=0.45, right, etq] {SÍ};
+\draw[flujo] (a4.south) -- (pb0.north);
+\coordinate (lazo) at ($(b1.west)+(-2.2mm,0)$);
+\draw[flujo] (b6.west) -- (b6.west -| lazo) node[pos=0.5, above, etq] {NO} -- (lazo) -- (b1.west);
 
-% ---------------------------------------------------------------- bus de turnos (semaforos)
-\coordinate (bus) at ($(h1.north)+(0,4mm)$);
-\draw[sem] (b3.east) -- ++(0.25,0) |- ($(bus)+(1.9,0)$) -- ($(bus -| h5.north)$) -- (h5.north)
-   node[pos=0.6, right, font=\ttfamily\fontsize{5.8}{7}\selectfont, text=colP0] {sem\_render};
-\draw[sem] ($(bus -| h2.north)$) -- (h2.north) node[pos=0.5, right, font=\ttfamily\fontsize{5.8}{7}\selectfont, text=colP0] {sem\_bomber\_turn};
-\draw[sem] ($(bus -| h3.north)$) -- (h3.north) node[pos=0.5, right, font=\ttfamily\fontsize{5.8}{7}\selectfont, text=colP0] {sem\_enemy\_turn};
-\draw[sem] ($(bus -| h4.north)$) -- (h4.north) node[pos=0.5, right, font=\ttfamily\fontsize{5.8}{7}\selectfont, text=colP0] {sem\_bomb\_turn};
-\node[font=\bfseries\fontsize{6.4}{7.4}\selectfont, text=colP0, above=0.2mm of bus, xshift=4.6cm] {P0 habilita turnos (\texttt{sem\_post}) y espera \texttt{sem\_turn\_done}};
+% ---------------------------------------------------------------- 3. P1
+\node[cab=colP1] (h3) at (\cC,0) {3. P1 · Bomberman};
+\node[hijo=colP1, below=3.5mm of h3] (p0) {Proceso hijo creado por P0\\3 hilos};
+\node[caja=colP1, below=4mm of p0] (p1) {Lector: lee su archivo y llena la cola (máx.\ 100)};
+\node[caja=colP1, below=of p1] (p2) {Espera su turno};
+\node[caja=colP1, below=of p2] (p3) {Ejecutor: saca \textbf{una} instrucción de la cola};
+\node[decision=colP1, below=3mm of p3] (p4) {¿movimiento,\\\texttt{BOMB} o\\\texttt{SET\_PRIORITY}?};
+\node[caja=colP1, below=3mm of p4] (p5) {Mueve a Bomberman o deja un pedido (bomba / prioridad)};
+\node[caja=colP1, below=of p5] (p6) {Publicador: publica la posición de Bomberman};
+\node[caja=colP1, below=of p6] (p7) {Señala fin de turno a P0};
+\node[sinc=colP1, below=7mm of p7] (p8)
+     {\textbf{\textcolor{colP1!80!black}{Sincronización P1}}\\[1pt]
+      {\itshape\textcolor{colP0!70!blue}{sem\_bomber\_turn}}\\
+      {\itshape\textcolor{colP0!70!blue}{sem\_items / sem\_espacios}}\\
+      {\itshape\textcolor{colP0!70!blue}{queue\_mtx, bomber\_mtx}}};
+\foreach \a/\b in {p1/p2,p2/p3,p3/p4,p4/p5,p5/p6,p6/p7}
+    \draw[flujo] (\a) -- (\b);
 
-% ---------------------------------------------------------------- memoria compartida
-\coordinate (mm) at ($(h0.west |- b7.south)+(0,-12mm)$);
-\node[memgrupo, anchor=north west] (m1) at (mm) {\textbf{Escribe P0} · \texttt{state\_mtx}, \texttt{prio\_mtx}\\\texttt{global\_tick}, \texttt{game\_over}, \texttt{bomber\_lives}, \texttt{score}, \texttt{enemy\_alive[]}, prioridades vigentes};
-\node[memgrupo, right=0.55cm of m1] (m2) {\textbf{Escribe P1} · \texttt{bomber\_mtx}\\\texttt{bomber\_x/y}, \texttt{bomber\_moves\_done}\\Buzones: \texttt{bomb\_request\_*} (\texttt{bomb\_req\_mtx}), \texttt{pending\_priority\_bomber}};
-\node[memgrupo, right=0.55cm of m2] (m3) {\textbf{Escribe P2} · \texttt{enemy\_mtx}\\\texttt{enemy\_x/y[]}, \texttt{enemy\_moves\_done}\\Eventos: \texttt{collision\_*} (\texttt{events\_mtx}), \texttt{pending\_priority\_enemy}};
-\node[memgrupo, right=0.55cm of m3] (m4) {\textbf{Escribe P3} · \texttt{map\_mtx}\\\texttt{map\_grid}, \texttt{active\_bombs}, \texttt{blocks\_destroyed}, \texttt{bomb\_x/y/timer[]}\\Eventos: \texttt{blast\_*} (\texttt{events\_mtx})};
-\node[memgrupo, right=0.55cm of m4] (m5) {\textbf{Semáforos} (\texttt{pshared = 1})\\\texttt{sem\_bomber\_turn}, \texttt{sem\_enemy\_turn}, \texttt{sem\_bomb\_turn}, \texttt{sem\_turn\_done}, \texttt{sem\_render}};
-\node[memgrupo, right=0.55cm of m5] (m6) {\textbf{Orden de mutex} (anti-deadlock)\\\texttt{map} $\to$ \texttt{bomber} $\to$ \texttt{enemy} $\to$ \texttt{bomb\_req} $\to$ \texttt{prio} $\to$ \texttt{events} $\to$ \texttt{state}};
+% ---------------------------------------------------------------- 4. P2
+\node[cab=colP2] (h4) at (\cD,0) {4. P2 · Enemigos};
+\node[hijo=colP2, below=3.5mm of h4] (e0) {Proceso hijo creado por P0\\8 hilos};
+\node[caja=colP2, below=4mm of e0] (e1) {Espera su turno};
+\node[caja=colP2, below=of e1] (e2) {Controlador: activa a cada enemigo vivo};
+\node[draw=colP2!80!red, dashed, line width=0.7pt, rounded corners=2pt, fill=colP2!5, text width=2.75cm,
+      align=center, inner sep=2.2pt, below=of e2] (e3)
+     {\textbf{\textcolor{colP2!70!red}{Ejecución paralela interna}}\\[2pt]
+      \fbox{\scriptsize Enem.\,1}\,\fbox{\scriptsize Enem.\,2}\\[1pt]\fbox{\scriptsize Enem.\,3}\,\fbox{\scriptsize Enem.\,4}};
+\node[caja=colP2, below=of e3] (e4) {Barrera: espera a todos los enemigos vivos};
+\node[caja=colP2, below=of e4] (e5) {Rastreador: copia la posición de Bomberman};
+\node[caja=colP2, below=of e5] (e6) {Detector: busca colisiones};
+\node[caja=colP2, below=of e6] (e7) {Publicador: publica posiciones y colisión};
+\node[caja=colP2, below=of e7] (e8) {Señala fin de turno a P0};
+\node[aviso=colP2, below=4mm of e8] (e9) {P2 no actualiza vidas; solo detecta y publica colisiones.};
+\node[sinc=colP2, below=4mm of e9] (e10)
+     {\textbf{\textcolor{colP2!80!black}{Sincronización P2}}\\[1pt]
+      {\itshape\textcolor{colP0!70!blue}{sem\_enemy\_turn}}\\
+      {\itshape\textcolor{colP0!70!blue}{sem\_start\_enemy[4]}}\\
+      {\itshape\textcolor{colP0!70!blue}{sem\_enemy\_done (barrera)}}\\
+      {\itshape\textcolor{colP0!70!blue}{enemy\_mtx}}};
+\foreach \a/\b in {e1/e2,e2/e3,e3/e4,e4/e5,e5/e6,e6/e7,e7/e8}
+    \draw[flujo] (\a) -- (\b);
+
+% ---------------------------------------------------------------- 5. P3
+\node[cab=colP3] (h5) at (\cE,0) {5. P3 · Bombas};
+\node[hijo=colP3, below=3.5mm of h5] (q0) {Proceso hijo creado por P0\\3 hilos · juega todos los ticks};
+\node[caja=colP3, below=4mm of q0] (q1) {Espera su turno};
+\node[caja=colP3, below=of q1] (q2) {1. Limpia el fuego del tick anterior};
+\node[caja=colP3, below=of q2] (q3) {2. Avanza los temporizadores};
+\node[caja=colP3, below=of q3] (q4) {3. Explota las bombas: cruz de alcance 2 y reacción en cadena};
+\node[caja=colP3, below=of q4] (q5) {4. Registra la bomba pedida por P1 (máx.\ 2)};
+\node[caja=colP3, below=of q5] (q6) {Publica el daño a Bomberman y enemigos};
+\node[caja=colP3, below=of q6] (q7) {Señala fin de turno a P0};
+\node[aviso=colP3, below=4mm of q7] (q8) {P3 tampoco resta vidas: solo publica la explosión.};
+\node[sinc=colP3, below=4mm of q8] (q9)
+     {\textbf{\textcolor{colP3!80!black}{Sincronización P3}}\\[1pt]
+      {\itshape\textcolor{colP0!70!blue}{sem\_bomb\_turn}}\\
+      {\itshape\textcolor{colP0!70!blue}{posta limpiar $\to$ fuse $\to$ explosión}}\\
+      {\itshape\textcolor{colP0!70!blue}{bombs\_mtx, map\_mtx}}};
+\foreach \a/\b in {q1/q2,q2/q3,q3/q4,q4/q5,q5/q6,q6/q7}
+    \draw[flujo] (\a) -- (\b);
+
+% ---------------------------------------------------------------- 6. P4
+\node[cab=colP4] (h6) at (\cF,0) {6. P4 · Render (bonus)};
+\node[hijo=colP4, below=3.5mm of h6] (r0) {Proceso hijo creado por P0\\solo con \texttt{-r}};
+\node[sinc=azulS, text width=2.2cm, below=4mm of r0, font=\sffamily\itshape\fontsize{6.1}{7.3}\selectfont, text=colP0!70!blue] (r00)
+     {Activado por P0 al final de cada tick};
+\node[caja=colP4, below=5mm of r00] (r1) {Espera señal de render};
+\node[caja=colP4, below=of r1] (r2) {Lee el estado compartido (mutex en orden)};
+\node[caja=colP4, below=of r2] (r3) {Dibuja el tablero con colores ANSI};
+\node[caja=colP4, below=of r3] (r4) {Señala fin de dibujo a P0};
+\node[etq, text width=3.0cm, text=black!65, below=2mm of r4] (r5) {\itshape Los mensajes de P0--P3 van a \texttt{partida.log}};
+\node[sinc=colP4, below=5mm of r5] (r6)
+     {\textbf{\textcolor{colP4!80!black}{Sincronización P4}}\\[1pt]
+      {\itshape\textcolor{colP0!70!blue}{sem\_render}}\\
+      {\itshape\textcolor{colP0!70!blue}{sem\_turn\_done}}};
+\foreach \a/\b in {r1/r2,r2/r3,r3/r4}
+    \draw[flujo] (\a) -- (\b);
+
+% ---------------------------------------------------------------- 7. Memoria compartida
+\node[cab=colMem] (h7) at (\cG,0) {7. Memoria compartida};
+\node[hijo=colMem, below=3.5mm of h7] (m0) {Creada por P0 con \texttt{mmap} antes del \texttt{fork()}};
+\node[panelt=colMem, below=5mm of m0, xshift=-3mm] (mb0) {Estado compartido};
+\node[draw=colMem, fill=colMem!12, rounded corners=1.5pt, inner sep=1.5pt, font=\sffamily\bfseries\fontsize{6}{7}\selectfont,
+      text=colMem!80!black, right=2mm of mb0] (shmb) {shm};
+\node[text width=3.05cm, align=left, below=2mm of mb0, xshift=3mm, font=\sffamily\fontsize{6.4}{8.2}\selectfont] (mb1)
+     {\textcolor{colMem}{$\bullet$} tick global y prioridades\\
+      \textcolor{colMem}{$\bullet$} posición de Bomberman\\
+      \textcolor{colMem}{$\bullet$} posiciones de enemigos\\
+      \textcolor{colMem}{$\bullet$} mapa y bombas activas\\
+      \textcolor{colMem}{$\bullet$} buzones de bomba y prioridad\\
+      \textcolor{colMem}{$\bullet$} eventos de colisión y explosión\\
+      \textcolor{colMem}{$\bullet$} vidas, puntaje y enemigos vivos\\
+      \textcolor{colMem}{$\bullet$} fin de juego};
 \begin{scope}[on background layer]
-  \node[draw=colMem, fill=colMem!8, rounded corners=3pt, inner sep=2.5mm, fit=(m1)(m6)] (shm) {};
+  \node[draw=colMem!70, fill=white, rounded corners=3pt, inner sep=1.6mm, fit=(mb0)(shmb)(mb1)] (pm) {};
 \end{scope}
-\node[font=\bfseries\fontsize{7.6}{9}\selectfont, text=colMem!80!black, anchor=south west] at ($(shm.north west)+(0.1,0.05)$)
-   {7. Memoria compartida: \texttt{shared\_t} (\texttt{mmap MAP\_SHARED | MAP\_ANONYMOUS})};
-\node[font=\fontsize{6.2}{7.2}\selectfont, text=black!65, anchor=south east] at ($(shm.north east)+(-0.1,0.05)$)
-   {Regla de oro: cada variable tiene un solo proceso escritor; en buzones y eventos el receptor solo baja la bandera.};
+\node[aviso=colMem, below=5mm of pm] (m2) {Regla: cada dato tiene \textbf{un solo} proceso escritor; los demás solo leen o dejan pedidos.};
+\node[sinc=colMem, below=5mm of m2] (m3)
+     {\textbf{\textcolor{colMem!80!black}{Orden global de mutex}}\\[1pt]
+      {\itshape\textcolor{colP0!70!blue}{map $\to$ bomber $\to$ enemy}}\\
+      {\itshape\textcolor{colP0!70!blue}{$\to$ bomb\_req $\to$ prio}}\\
+      {\itshape\textcolor{colP0!70!blue}{$\to$ events $\to$ state}}\\[1pt]
+      \textcolor{black!65}{(evita el interbloqueo)}};
 
-% flechas de datos a la memoria compartida
-\draw[dato] (u5.south) -- (u6.north);
-\draw[dato] (b7.south) -- ($(b7.south |- shm.north)+(0,4mm)$) node[midway, right, font=\fontsize{5.8}{7}\selectfont, text=colMem!80!black] {lee eventos, escribe estado};
-\draw[dato] (p8.south) -- ($(p8.south |- shm.north)+(0,4mm)$) node[midway, right, font=\fontsize{5.8}{7}\selectfont, text=colMem!80!black] {posición, pedidos};
-\draw[dato] (e8.south) -- ($(e8.south |- shm.north)+(0,4mm)$) node[midway, right, font=\fontsize{5.8}{7}\selectfont, text=colMem!80!black] {enemigos, colisión};
-\draw[dato] (q7.south) -- ($(q7.south |- shm.north)+(0,4mm)$) node[midway, right, font=\fontsize{5.8}{7}\selectfont, text=colMem!80!black] {mapa, bombas, daño};
-\draw[dato, <-] (ley.south) -- ($(ley.south |- shm.north)+(0,4mm)$) node[midway, right, font=\fontsize{5.8}{7}\selectfont, text=colMem!80!black] {solo lee};
-\draw[dato] (u4.east) -- ++(0.22,0) |- (a3.west);
+% ---------------------------------------------------------------- 8. Leyenda
+\node[cab=grisA, minimum width=3.0cm] (h8) at (\cH,0) {8. Leyenda};
+\node[anchor=north west, text width=2.9cm, align=left, font=\sffamily\fontsize{6.3}{7.6}\selectfont]
+     (ley) at ($(h8.south west)+(0.05,-0.45)$) {%
+  \tikz[baseline=-0.6ex]\draw[flujo](0,0)--(0.55,0);\ flujo principal\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[arch](0,0)--(0.55,0);\ lectura de archivos\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[dato](0,0)--(0.55,0);\ lectura o escritura en memoria compartida\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[sem](0,0)--(0.55,0);\ sincronización / semáforos entre procesos\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[colP2!80!red, dashed, line width=0.7pt, rounded corners=1pt](0,-0.1) rectangle (0.55,0.12);\ ejecución paralela interna\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[black!75, line width=0.55pt, rounded corners=1pt](0,-0.1) rectangle (0.55,0.12);\ paso de un proceso\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[black!75, line width=0.55pt](0.27,-0.14)--(0.55,0)--(0.27,0.14)--(0,0)--cycle;\ decisión\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[black!75, line width=0.6pt, rounded corners=1.2mm](0,-0.12) rectangle (0.55,0.14);\ inicio / fin\\[5pt]
+  \tikz[baseline=-0.6ex]{\draw[line width=0.5pt](0.1,-0.17)--(0.1,0.17)--(0.36,0.17)--(0.45,0.08)--(0.45,-0.17)--cycle;}\ archivo\\[5pt]
+  \tikz[baseline=-0.6ex]\draw[colP0!70!blue, dashed, rounded corners=1pt](0,-0.1) rectangle (0.55,0.12);\ primitivas de sincronización};
 
-% ---------------------------------------------------------------- fondos de columna
-\begin{scope}[on background layer]
-  \node[draw=black!35, fill=black!3, rounded corners=3pt, inner sep=1.6mm, fit=(h0)(u6)] {};
-  \node[draw=colP0, fill=colP0!5, rounded corners=3pt, inner sep=1.6mm, fit=(h1)(b7)] {};
-  \node[draw=colP1, fill=colP1!5, rounded corners=3pt, inner sep=1.6mm, fit=(h2)(p8)] {};
-  \node[draw=colP2, fill=colP2!5, rounded corners=3pt, inner sep=1.6mm, fit=(h3)(e8)] {};
-  \node[draw=colP3, fill=colP3!7, rounded corners=3pt, inner sep=1.6mm, fit=(h4)(q7)] {};
-  \node[draw=colP4, fill=colP4!5, rounded corners=3pt, inner sep=1.6mm, fit=(h5)(ley)] {};
-\end{scope}
+% ============================================================== fondo común de columnas
+\coordinate (fondo) at ($(b10.south)+(0,-4mm)$);
+\begin{pgfonlayer}{capa0}
+  \foreach \h/\c/\f in {h1/black!45/black!2, h2/colP0/colP0!5, h3/colP1/colP1!5, h4/colP2/colP2!5,
+                        h5/colP3/colP3!6, h6/colP4/colP4!5, h7/colMem/colMem!5, h8/black!45/white}
+    \node[draw=\c, fill=\f, rounded corners=4pt, line width=0.8pt, inner sep=1.6mm,
+          fit=(\h)($(\h.south |- fondo)$)] {};
+\end{pgfonlayer}
+
+% ============================================================== flechas entre columnas
+% usuario -> P0
+\draw[flujo] (u2.east) -- ++(0.58,0) |- (a1.west);
+% archivos -> P0 (carga datos iniciales)
+\draw[arch] (pa.east) -- ++(0.42,0) |- (a3.west);
+\node[etq, text width=0.68cm, fill=white, inner sep=0.5pt, font=\sffamily\fontsize{5.6}{6.6}\selectfont] at ($(pa.east)+(0.6,-0.05)$) {carga datos iniciales};
+% bus de turnos: P0 habilita a cada proceso
+\coordinate (bus) at ($(h2.north)+(0,5mm)$);
+\draw[sem] (b3.east) -- ++(0.58,0) |- ($(bus -| h6.north)$) -- (h6.north) node[pos=0.5, right, etq, text=colP0!60!blue] {render};
+\draw[sem] ($(bus -| h3.north)$) -- (h3.north) node[pos=0.5, right, etq, text=colP0!60!blue] {turno};
+\draw[sem] ($(bus -| h4.north)$) -- (h4.north) node[pos=0.5, right, etq, text=colP0!60!blue] {turno};
+\draw[sem] ($(bus -| h5.north)$) -- (h5.north) node[pos=0.5, right, etq, text=colP0!60!blue] {turno};
+\node[etq, font=\sffamily\bfseries\fontsize{6.6}{7.6}\selectfont, text=colP0!60!blue, anchor=south west] at ($(bus -| h3.north)+(0.15,0.04)$)
+     {P0 habilita cada turno con un semáforo y espera su fin};
+% lecturas y escrituras en la memoria compartida (bus inferior)
+\coordinate (bus2) at ($(fondo)+(0,-9mm)$);
+\draw[dato] (p8.south) -- (p8.south |- bus2) node[pos=0.62, right, etq, text=colMem!85!black] {escribe posición\\y pedidos};
+\draw[dato] (e10.south) -- (e10.south |- bus2) node[pos=0.5, right, etq, text=colMem!85!black] {escribe posiciones\\y colisión};
+\draw[dato] (q9.south) -- (q9.south |- bus2) node[pos=0.5, right, etq, text=colMem!85!black] {escribe mapa,\\bombas y daño};
+\draw[dato, <-] (r6.south) -- (r6.south |- bus2) node[pos=0.5, right, etq, text=colMem!85!black] {lee estado};
+\draw[dato, <->] ($(h2.south |- fondo)+(1.2,0)$) -- ($(h2.south |- bus2)+(1.2,0)$) node[pos=0.5, right, etq, text=colMem!85!black] {lee eventos,\\escribe estado};
+\draw[line width=0.7pt, colMem!85!black] ($(h2.south |- bus2)+(1.2,0)$) -- ($(h7.south |- bus2)$);
+\draw[dato] ($(h7.south |- bus2)$) -- ($(h7.south |- fondo)$);
+
+% ============================================================== título y resumen
+\node[font=\sffamily\bfseries\fontsize{12}{14}\selectfont, anchor=south] (tit) at ($(h4.north)!0.5!(h6.north)+(0,1.55)$)
+     {Arquitectura operacional y flujo de sincronización del sistema concurrente Bomberman};
+\node[font=\sffamily\bfseries\fontsize{8.4}{10}\selectfont, text=black!55, below=0.5mm of tit]
+     {Multiproceso, memoria compartida, semáforos POSIX, mutex y planificación por turnos};
+\node[draw=colP0!60!blue, fill=colP0!4, rounded corners=4pt, line width=0.8pt, text width=30cm, align=center,
+      inner sep=2.5mm, font=\sffamily\itshape\fontsize{7.6}{9.6}\selectfont, text=colP0!70!black, anchor=north]
+     at ($(h1.south |- bus2)!0.5!(h8.south |- bus2)+(0,-4mm)$)
+     {El sistema usa P0 como coordinador central. P1, P2 y P3 no modifican el estado global por su cuenta: cada turno se habilita con un semáforo,
+      las escrituras críticas se protegen con mutex y los eventos (colisión y explosión) los procesa solo P0, que descuenta como máximo una vida por tick.};
 \end{tikzpicture}

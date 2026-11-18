@@ -8,6 +8,11 @@
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
+\usepackage{placeins}
+\usepackage{afterpage}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.85}
 \usepackage[spanish,es-noshorthands,es-tabla]{babel}
 \usepackage{newtxtext}
 \usepackage[varqu]{inconsolata}
@@ -102,20 +107,16 @@ POSIX proporciona las herramientas para modelar este tipo de sistema: procesos m
   \item \textbf{Proceso de Renderizado (P4, bonus):} con la opción \cod{-r}, dibuja cada tick en la terminal sincronizado con P0.
 \end{itemize}
 
-El acceso simultáneo al estado global expone al sistema a condiciones de carrera. Para mitigarlas se incorporan mutex compartidos entre procesos con un orden global de adquisición, semáforos POSIX y un esquema de ejecución por pasos (\emph{lock-step}). El objetivo es garantizar la serialización del flujo global, la integridad de los datos, el cierre limpio de todos los procesos e hilos y la reproducibilidad de cada partida.
+El acceso simultáneo al estado global expone al sistema a \emph{race conditions} (condiciones de carrera): el resultado depende de qué proceso llega primero al dato compartido. Para mitigarlas se incorporan mutex compartidos entre procesos con un orden global de adquisición, semáforos POSIX y un esquema de ejecución por pasos (\emph{lock-step}). El objetivo es garantizar la serialización del flujo global, la integridad de los datos, el cierre limpio de todos los procesos e hilos y la reproducibilidad de cada partida.
 
 % =============================================================================
 \section{Background}
 
-La modelización de videojuegos interactivos como sistemas concurrentes y máquinas de estados es un enfoque consolidado en la ingeniería de sistemas operativos y la arquitectura de software. Cuando varios agentes autónomos interactúan en un entorno compartido, el diseño secuencial tradicional resulta insuficiente y obliga a dividir la lógica del juego en componentes que se ejecutan de manera simultánea.
+Modelar un videojuego como una Máquina de Estados Finitos que avanza \emph{tick} a \emph{tick} es un enfoque documentado por Jagdale (2021): el estado global se actualiza ante estímulos periódicos sobre un mundo discretizado. De ahí sale nuestra arquitectura, con un planificador central que gobierna la transición de todos los actores y una bomba que no es más que un estado con un contador que decrece en cada tick. Shene (2002) defiende además los juegos con varios personajes simultáneos como plataforma para aprender concurrencia, porque obligan a enfrentar en la práctica los problemas de sincronización.
 
-El ciclo de juego como una Máquina de Estados Finitos (FSM) que avanza paso a paso (\emph{tick} a \emph{tick}) está documentado por Jagdale (2021): el estado global se actualiza ante estímulos periódicos, y los personajes no jugables toman sus decisiones sobre un mundo discretizado. Esta perspectiva fundamenta directamente nuestra arquitectura, en la que un proceso planificador centralizado gobierna la transición de todos los actores y en la que una bomba no es más que un estado con un contador que decrece en cada tick.
+El semáforo como contador con operaciones atómicas de espera y señal fue propuesto por Dijkstra (1965), y Downey (2016) sistematiza los tres patrones que usamos casi literalmente: la \emph{señalización} (un proceso habilita a otro), la \emph{barrera} (esperar a que $n$ hilos terminen) y el \emph{productor--consumidor con buffer acotado} (un semáforo de elementos y otro de espacios). Los conceptos de sección crítica, race condition, interbloqueo y planificación por prioridades con desempate \emph{Round Robin} siguen a Silberschatz et al.\ (2018) y Tanenbaum y Bos (2015); las cuatro condiciones del interbloqueo de Coffman et al.\ (1971) justifican nuestro \emph{orden global de adquisición de mutex}, que hace imposible la espera circular.
 
-El uso de juegos con varios personajes simultáneos como plataforma para aprender concurrencia es defendido por Shene (2002), quien argumenta que implementar hilos, semáforos y exclusión mutua aporta una comprensión empírica de los problemas de sincronización que la teoría no cubre por sí sola. El semáforo como contador con operaciones atómicas de espera y señal fue propuesto por Dijkstra (1965); Downey (2016) sistematiza los patrones con semáforos que usamos casi literalmente: la \emph{señalización} (un proceso habilita a otro), la \emph{barrera} (esperar a que $n$ hilos terminen antes de continuar) y el \emph{productor--consumidor con buffer acotado} (un semáforo de elementos y otro de espacios).
-
-Los fundamentos sobre procesos, hilos, sección crítica, condiciones de carrera, lecturas sucias e interbloqueos provienen de Silberschatz et al.\ (2018) y de Tanenbaum y Bos (2015), junto con la planificación por prioridades y la política de desempate equitativa (\emph{Round Robin}) que usa nuestro planificador. Las cuatro condiciones necesarias del interbloqueo de Coffman et al.\ (1971) justifican la regla de \emph{orden global de adquisición de mutex} que adoptamos: si todos los hilos toman los candados en el mismo orden, la espera circular es imposible.
-
-El traslado de estos conceptos a llamadas al sistema sigue a Stevens y Rago (2013) y a Kerrisk (2010): la bifurcación con \cod{fork}, la memoria compartida anónima con \cod{mmap(MAP\_SHARED | MAP\_ANONYMOUS)}, los semáforos sin nombre con \cod{sem\_init(\ldots, 1, \ldots)} y los mutex con el atributo \cod{PTHREAD\_PROCESS\_SHARED}, que permiten que primitivas creadas en el padre funcionen entre procesos distintos. Finalmente, para verificar la ausencia de carreras de datos entre hilos de un mismo proceso empleamos ThreadSanitizer (Serebryany e Iskhodzhanov, 2009).
+La implementación sigue a Stevens y Rago (2013) y a Kerrisk (2010): \cod{fork}, memoria compartida anónima con \cod{mmap(MAP\_SHARED | MAP\_ANONYMOUS)}, semáforos sin nombre con \cod{sem\_init(\ldots, 1, \ldots)} y mutex con \cod{PTHREAD\_PROCESS\_SHARED}, de modo que las primitivas creadas en el padre funcionen entre procesos. Para verificar la ausencia de race conditions entre hilos de un mismo proceso usamos ThreadSanitizer (Serebryany e Iskhodzhanov, 2009).
 
 % =============================================================================
 \section{Metodología}
@@ -126,19 +127,19 @@ De acuerdo con los objetivos del proyecto se diseñó una arquitectura de cuatro
 
 Para dar una visión directa de la solución multiproceso se diseñó un esquema que muestra cómo los procesos P0--P4 interactúan a través del núcleo central de memoria compartida (Figura~\ref{fig:arq}). Antes de presentarlo, la Tabla~\ref{tab:guia} resume la función de cada proceso, el recurso compartido que usa y el mecanismo POSIX que garantiza su sincronización.
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
-\begin{tabularx}{\textwidth}{@{}p{1.15cm}p{2.0cm}YYY@{}}
+\begin{tabularx}{\textwidth}{@{}p{1.1cm}>{\raggedright\arraybackslash}p{2.3cm}YYY@{}}
 \toprule
 \textbf{Paso} & \textbf{Proceso} & \textbf{Responsabilidad principal} & \textbf{Recurso compartido} & \textbf{Mecanismo de control}\\
 \midrule
-Paso 1 & P0 -- Planificador & \cod{tick\_thread} incrementa el tick; \cod{scheduler\_thread} aplica los buzones de prioridad y elige P1 o P2 (mayor prioridad; Round Robin si empatan). & \cod{global\_tick}, prioridades vigentes y buzones \cod{pending\_priority\_*}. & Posta de semáforos internos entre los 4 hilos; \cod{state\_mtx}, \cod{prio\_mtx}.\\
+Paso 1 & P0 -- Planificador & Incrementa el \emph{tick} global, aplica los cambios de prioridad pedidos y decide si juega Bomberman o los enemigos (mayor prioridad; alternancia si empatan). & Reloj del juego, prioridades vigentes y buzones de prioridad. & Posta de semáforos internos entre sus cuatro hilos y mutex del estado global.\\
 \midrule
-Paso 2 & P1 -- Bomberman \emph{o} P2 -- Enemigos & P1 ejecuta una instrucción, publica su posición y deja pedidos; P2 mueve a los enemigos vivos en paralelo y detecta colisiones. & Posiciones, buzón de bomba, evento \cod{collision\_*}. & \cod{sem\_bomber\_turn} / \cod{sem\_enemy\_turn} y \cod{sem\_turn\_done}; cola acotada (P1); barrera \cod{sem\_enemy\_done} (P2).\\
+Paso 2 & P1 -- Bomberman \emph{o} P2 -- Enemigos & P1 ejecuta una instrucción, publica su posición y deja pedidos; P2 mueve a los enemigos vivos en paralelo y detecta colisiones contra Bomberman. & Posiciones de los personajes, buzón de bomba y evento de colisión. & Semáforos de turno y de fin de turno; cola acotada productor--consumidor (P1); barrera con semáforo contador (P2).\\
 \midrule
-Paso 3 & P3 -- Bombas & Limpia el fuego, avanza temporizadores, explota (en cruz y en cadena) y registra la bomba pedida. & \cod{map\_grid}, \cod{active\_bombs}, \cod{blocks\_destroyed}, evento \cod{blast\_*}. & \cod{sem\_bomb\_turn}; \cod{bombs\_mtx}; posta \cod{fuse} $\to$ \cod{explosion}.\\
+Paso 3 & P3 -- Bombas & Limpia el fuego, avanza los temporizadores, hace explotar las bombas (en cruz y en cadena) y registra la bomba pedida. & Mapa lógico, tabla de bombas activas y evento de explosión. & Semáforo de turno de P3, mutex de la tabla de bombas y posta de semáforos entre sus hilos.\\
 \midrule
-Paso 4 & P0 / P4 -- Cierre y render & \cod{event\_thread} aplica los eventos (máximo una vida por tick), calcula el puntaje y evalúa el fin; con \cod{-r}, P4 dibuja el estado consolidado. & Vidas, enemigos vivos, puntaje, \cod{game\_over}. & P0 único escritor; \cod{events\_mtx}; \cod{sem\_render}; cierre con \cod{sem\_post} y \cod{waitpid}.\\
+Paso 4 & P0 / P4 -- Cierre y renderizado & P0 procesa los eventos (máximo una vida por tick), actualiza el puntaje y evalúa el fin; con \cod{-r}, P4 dibuja el estado consolidado. & Vidas, enemigos vivos, puntaje y condición de cierre. & P0 como único escritor del estado, mutex de eventos, semáforo de renderizado y cierre con \cod{waitpid}.\\
 \bottomrule
 \end{tabularx}
 \caption{Guía de interpretación de los procesos y mecanismos de sincronización del sistema.}
@@ -147,34 +148,35 @@ Paso 4 & P0 / P4 -- Cierre y render & \cod{event\_thread} aplica los eventos (m�
 
 La lectura del diagrama se realiza de izquierda a derecha: primero la entrada del usuario y los archivos del caso, luego el planificador P0, después los procesos de Bomberman, enemigos y bombas, y finalmente el renderizado. Abajo está la memoria compartida, dividida por \emph{dueño}: cada grupo de variables tiene un único proceso escritor y un mutex propio. El diagrama evidencia que el sistema no permite escrituras libres sobre la memoria compartida: cada actualización crítica ocurre dentro de un turno autorizado por P0 y bajo una primitiva de sincronización específica.
 
+\afterpage{%
 \begin{landscape}
 \begin{figure}[p]
 \centering
 \resizebox{\linewidth}{!}{\input{figuras/arquitectura.tex}}
-\caption{Arquitectura concurrente del sistema Bomberman: multiproceso, memoria compartida y sincronización POSIX. Las flechas azul oscuro son los semáforos con que P0 habilita los turnos (P1 o P2 en la fase de acción; P3 en todos los ticks; P4 solo con \cod{-r}); las flechas verdes punteadas son lecturas y escrituras en \cod{shared\_t}. Dentro de cada proceso, los hilos se coordinan con semáforos locales (\cod{pshared = 0}).}
+\caption{Arquitectura operacional del sistema. Cada columna es un proceso; las flechas azules son los semáforos con que P0 habilita los turnos (P1 o P2 en la fase de acción, P3 en todos los ticks y P4 solo con \cod{-r}) y las verdes son lecturas y escrituras en la memoria compartida. Los recuadros punteados resumen las primitivas de sincronización de cada proceso.}
 \label{fig:arq}
 \end{figure}
-\end{landscape}
+\end{landscape}}
 
 \subsection{Flujo lógico y sincronización en cada tick}
 
-Una vez visualizada la estructura macro, describimos el ciclo de vida de un tick dividido en las cuatro fases de la arquitectura. Cada hilo de P0 hace una sola parte del tick y le pasa la ``posta'' al siguiente con un semáforo interno (\cod{sem\_toca\_tick} $\to$ \cod{sem\_toca\_decidir} $\to$ \cod{sem\_toca\_senal} $\to$ \cod{sem\_toca\_eventos}); \cod{sem\_toca\_tick} empieza en 1 para que el primer tick arranque solo.
+Una vez visualizada la estructura macro del sistema, describimos el ciclo de vida de un tick, la unidad de tiempo de la simulación, dividido en las cuatro etapas de la arquitectura. Dentro de P0, cada uno de sus cuatro hilos hace una sola parte del tick y le pasa la ``posta'' al siguiente mediante un semáforo interno.
 
 \subsubsection{Paso 1: inicio del tick y asignación del turno}
-\cod{tick\_thread} incrementa \cod{global\_tick} bajo \cod{state\_mtx}. \cod{scheduler\_thread} atiende los buzones de prioridad: si P1 o P2 pidieron \cod{SET\_PRIORITY n} en el tick anterior y $1 \le n \le 49$, P0 aplica el valor y baja la bandera. Después compara \cod{prioridad\_bomber} con \cod{prioridad\_enemy}: juega el de mayor prioridad y, si empatan, se alternan comenzando por P1. El elegido se deja en \cod{turno\_actual}, protegido por \cod{turno\_mtx} porque lo lee otro hilo. Como un proceso sin turno no ejecuta instrucciones, tampoco puede ejecutar su propio \cod{SET\_PRIORITY}: con prioridades fijas desiguales hay \emph{inanición} del de menor prioridad, comportamiento que el enunciado exige.
+El ciclo inicia con P0. Su primer hilo incrementa el reloj global y el segundo aplica los cambios de prioridad que P1 o P2 hayan pedido en el tick anterior, siempre que el valor esté entre 1 y 49. A partir de esas prioridades decide si el turno corresponde a Bomberman o a los enemigos: juega el de mayor prioridad y, si empatan, se alternan comenzando por Bomberman. Como un proceso sin turno no ejecuta instrucciones, tampoco puede pedir un cambio de prioridad; por eso, con prioridades fijas desiguales, el de menor prioridad sufre \emph{inanición}, comportamiento que el enunciado exige.
 
 \subsubsection{Paso 2: fase de acción (P1 o P2)}
-\cod{signal\_thread} hace \cod{sem\_post} al semáforo del elegido y espera \cod{sem\_turn\_done}.
-\begin{itemize}
-  \item \textbf{P1.} \cod{movement\_reader\_thread} lee el archivo completo y llena una cola circular de 100 instrucciones (protegida por \cod{queue\_mtx}, con los semáforos \cod{sem\_items} y \cod{sem\_espacios}). \cod{movement\_executor\_thread} espera \cod{sem\_bomber\_turn} y saca instrucciones hasta gastar el turno: una línea inválida se descarta sin gastarlo; un movimiento hacia una celda no transitable sí lo gasta. \cod{BOMB} y \cod{SET\_PRIORITY} solo dejan un pedido en su buzón. \cod{bomber\_publisher\_thread} escribe la posición final en la memoria compartida.
-  \item \textbf{P2.} \cod{enemy\_controller\_thread} recibe \cod{sem\_enemy\_turn} y despierta a cada enemigo vivo con su propio semáforo \cod{sem\_start\_enemy[i]}. Los \cod{enemy\_thread} leen una instrucción de su archivo y se mueven en paralelo (dos enemigos pueden compartir celda; \cod{BOMB} es inválida para ellos). El controlador espera \cod{sem\_enemy\_done} tantas veces como enemigos vivos (barrera) y recién entonces activa a \cod{bomber\_tracker\_thread}, que copia la posición de Bomberman; solo cuando el rastreador termina (\cod{sem\_tracker\_done}) despierta a \cod{collision\_thread}, que publica \cod{collision\_detected} si algún enemigo vivo está en esa celda (Familia~2c). Los enemigos se mueven sobre posiciones internas de P2; \cod{enemy\_publisher\_thread} las copia a \cod{enemy\_x/y} bajo \cod{enemy\_mtx} y cierra el turno.
-\end{itemize}
+P0 libera el semáforo del elegido, \cod{sem\_bomber\_turn} o \cod{sem\_enemy\_turn}, y espera la señal de finalización \cod{sem\_turn\_done}. Esta espera impide que el tick avance antes de que el proceso autorizado termine su trabajo.
+
+Cuando P1 recibe el turno, su lógica interna usa un esquema productor--consumidor. Un hilo lector carga las instrucciones del archivo en una cola acotada de 100 posiciones, protegida por un mutex y por dos semáforos contadores (elementos disponibles y espacios libres). Un hilo ejecutor saca una instrucción por turno: si es inválida la descarta sin gastar el turno, si es un movimiento valida que la celda sea transitable, y si es \cod{BOMB} o \cod{SET\_PRIORITY} solo deja un pedido en su buzón. Finalmente, el hilo publicador escribe la nueva posición en la memoria compartida y notifica el fin del turno.
+
+Cuando el turno corresponde a P2, el controlador despierta a cada enemigo vivo con su propio semáforo, y los cuatro hilos de enemigos se mueven en paralelo sobre posiciones internas. Para evitar lecturas parciales, los hilos confluyen en una barrera basada en el semáforo contador \cod{sem\_enemy\_done}. Solo después de la barrera el rastreador copia la última posición publicada de Bomberman y, recién cuando termina, el hilo de colisión compara coordenadas y publica un evento si algún enemigo está en la celda de Bomberman (Familia~2c). El publicador copia las posiciones a la memoria compartida y cierra el turno.
 
 \subsubsection{Paso 3: fase de bombas (P3, en todos los ticks)}
-\cod{signal\_thread} hace \cod{sem\_post(sem\_bomb\_turn)} y espera de nuevo. \cod{bomb\_controller\_thread} ejecuta, siempre en este orden: (1) limpiar el fuego del tick anterior (\cod{*} $\to$ \cod{O}); (2) despertar a \cod{fuse\_thread}, que decrementa los temporizadores, y esperar su \cod{sem\_fuse\_done}; (3) despertar a \cod{explosion\_thread}, que detona las bombas con temporizador en 0: fuego en cruz hasta dos celdas, la pared lo detiene, el bloque se rompe y lo detiene, y otra bomba alcanzada se marca con temporizador 0 y explota en la misma pasada (cadena); además publica \cod{blast\_hit\_bomber} y \cod{blast\_hit\_enemy[i]}; (4) registrar el pedido de P1 si hay menos de dos bombas activas. Registrar \emph{después} de explotar garantiza que una bomba pedida en el tick $t$ explote exactamente en $t+3$, sin importar qué proceso tenga los turnos intermedios.
+A diferencia de P1 y P2, P3 juega en todos los ticks. Su controlador coordina a los otros dos hilos con una posta de semáforos, siempre en el mismo orden: primero se limpia el fuego del tick anterior, luego se descuentan los temporizadores y después explotan las bombas que llegaron a cero. El fuego se propaga en cruz hasta dos celdas, se detiene en las paredes, rompe el primer bloque que encuentra y hace explotar en la misma pasada a otra bomba alcanzada (reacción en cadena). Al final se registra la bomba pedida por P1 si hay menos de dos activas. Registrar \emph{después} de explotar garantiza que una bomba pedida en el tick $t$ explote exactamente en $t+3$, sin importar qué proceso tenga los turnos intermedios.
 
 \subsubsection{Paso 4: cierre del tick y renderizado (P0 y P4)}
-\cod{event\_thread} toma \cod{events\_mtx} y \cod{state\_mtx} y aplica los eventos: si hubo colisión o explosión sobre Bomberman descuenta \emph{una sola} vida aunque ocurran ambas; marca como muertos a los enemigos alcanzados; recalcula el puntaje ($10 \times$ bloques $+ 100 \times$ enemigos eliminados) y evalúa el fin en este orden: derrota (vidas en 0), victoria (sin enemigos), sin movimientos (ambos archivos agotados y sin bombas activas) o \cod{max\_ticks}. Con \cod{-r}, P0 hace \cod{sem\_post(sem\_render)} y espera a que P4 termine de dibujar, de modo que el dibujo nunca muestra un estado a medio cambiar. Cuando el juego termina, cada hilo de P0 pasa la posta antes de salir y \cod{signal\_thread} despierta a todos los procesos dormidos para que vean \cod{game\_over} y terminen; recién entonces \cod{main} hace \cod{waitpid}.
+Con los turnos terminados, P0 revisa los eventos pendientes: si hubo colisión o explosión sobre Bomberman descuenta \emph{una sola} vida aunque ocurran ambas, marca como eliminados a los enemigos alcanzados y recalcula el puntaje (10 por bloque y 100 por enemigo). Si se usó \cod{-r}, autoriza a P4 a leer el estado consolidado y dibujarlo, y espera a que termine, de modo que la pantalla nunca muestra un estado a medio cambiar. Finalmente evalúa las condiciones de cierre: vidas agotadas, todos los enemigos eliminados, ambos archivos agotados sin bombas activas o límite de ticks. El cierre se coordina despertando a todos los procesos para que vean el fin del juego y con \cod{waitpid}, lo que evita procesos colgados o esperas indefinidas.
 
 \subsection{Memoria compartida y regla de un solo escritor}
 
@@ -201,19 +203,15 @@ Eventos \cod{collision\_*} y \cod{blast\_*} & P2 / P3 & P0 & \cod{events\_mtx}\\
 
 \subsection{Demostración temporal de sincronización y barreras}
 
-El diagrama temporal de la Figura~\ref{fig:tick} muestra la estructura de sincronización en dos ticks consecutivos con prioridades iguales: en el primero juega P1 y en el segundo P2. La lectura técnica principal es que P1, P2 y P3 nunca se superponen como escritores del estado global, lo que valida el enfoque \emph{lock-step}.
+El diagrama temporal de la Figura~\ref{fig:tick} muestra los cuatro pasos de la Sección~3.2 en dos ticks consecutivos con prioridades iguales: en el primero juega P1 y en el segundo P2. Cada fila es un hilo y cada flecha azul es un semáforo con el que un hilo despierta al siguiente. En el tick~1 se ve que el lector de P1 llenó la cola al inicio y que el ejecutor saca \emph{una} sola instrucción por turno; en el tick~2, que los cuatro enemigos se mueven a la vez y que nadie compara posiciones antes de la barrera. La lectura técnica principal es que P1, P2 y P3 nunca trabajan al mismo tiempo sobre el estado global: siempre hay un solo proceso despierto fuera de P0, lo que valida el enfoque \emph{lock-step}. Dentro de cada proceso el paralelismo queda acotado por barreras y postas: en P2 nadie compara posiciones antes de la barrera, y en P3 la explosión no arranca hasta que terminó el temporizador.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figuras/tick.pdf}
-\caption{Diagrama temporal de sincronización por turnos: posta de los cuatro hilos de P0, fase de acción, barrera de P2 y fase de bombas.}
+\caption{Diagrama temporal de dos ticks, dividido en los cuatro pasos del ciclo: inicio y elección de turno (P0), turno del proceso elegido (P1 o P2), bombas (P3) y cierre (P0 y P4).}
 \label{fig:tick}
 \end{figure}
 
-\subsubsection{Paralelismo seguro en P2 y en P3}
-En el tick 2 los cuatro \cod{enemy\_thread} y el rastreador se ejecutan en paralelo; la línea de \cod{collision\_thread} sube recién cuando el controlador recibió los cuatro \cod{sem\_enemy\_done}. En P3 ocurre lo mismo a menor escala: \cod{explosion\_thread} no arranca hasta que \cod{fuse\_thread} terminó. Así el paralelismo interno nunca expone un estado intermedio a quien lo consume.
-
-\subsubsection{Planificación por prioridad y Round Robin}
 La Figura~\ref{fig:turnos} se construyó con la salida real del programa en tres escenarios. Con las prioridades por defecto (20 y 30) P2 recibe todos los turnos. En el ejemplo 8.5 del enunciado (40 y 30) P1 juega hasta que, en T7, pide prioridad 25; P0 la aplica al inicio de T8 y desde ahí juega P2. Con prioridades iguales los turnos se alternan, y la misma secuencia de movimientos produce otro resultado: la bomba se coloca en T5, explota en T8 y Bomberman, que solo alcanzó a dar un paso, pierde una vida. El resultado de la partida depende de la planificación, no solo de los movimientos.
 
 \begin{figure}[H]
@@ -223,32 +221,29 @@ La Figura~\ref{fig:turnos} se construyó con la salida real del programa en tres
 \label{fig:turnos}
 \end{figure}
 
-\subsubsection{Modelo lock-step}
-En ambas figuras se observa que en cada tick hay exactamente una fase de acción (P1 o P2) seguida de una fase de bombas (P3), y que P0 no avanza el reloj hasta recibir \cod{sem\_turn\_done} de cada una. Los semáforos POSIX garantizan, por tanto, una serialización cooperativa estricta entre procesos, mientras que dentro de cada proceso el paralelismo queda acotado por barreras y postas.
-
 % =============================================================================
 \section{Experimentación inicial}
 
 \subsection{Metodología de medición}
 
-Durante el desarrollo (cinco procesos y hasta dieciocho hilos sobre una misma memoria compartida) nos encontramos con varias condiciones de carrera. Para demostrar cada una de forma objetiva seguimos el mismo protocolo experimental.
+Durante el desarrollo (cinco procesos y hasta dieciocho hilos sobre una misma memoria compartida) nos encontramos con varias race conditions. Para demostrar cada una de forma objetiva seguimos el mismo protocolo experimental.
 
 \begin{enumerate}
-  \item \textbf{Dos versiones del mismo código.} Una \emph{sin} la primitiva de sincronización, donde la carrera se manifiesta, y otra \emph{con} ella (mutex, semáforo, barrera, orden o liberación), obtenidas con una bandera de compilación (\cod{-DBUGGY}). Cada experimento es un programa corto en \cod{informe/experimentos/} que reproduce el patrón exacto de nuestro código, con los mismos nombres de hilos, semáforos y mutex.
-  \item \textbf{Un parámetro medible que revele la carrera.} Según el caso: la corrección del dato compartido, las lecturas inconsistentes, los eventos perdidos, el orden de los eventos o el tiempo hasta el cierre.
+  \item \textbf{Dos versiones del mismo código.} Una \emph{sin} la primitiva de sincronización, donde la race condition se manifiesta, y otra \emph{con} ella (mutex, semáforo, barrera, orden o liberación), obtenidas con una bandera de compilación (\cod{-DBUGGY}). Cada experimento es un programa corto en \cod{informe/experimentos/} que reproduce el patrón exacto de nuestro código, con los mismos nombres de hilos, semáforos y mutex.
+  \item \textbf{Un parámetro medible que revele la race condition.} Según el caso: la corrección del dato compartido, las lecturas inconsistentes, los eventos perdidos, el orden de los eventos o el tiempo hasta el cierre.
   \item \textbf{Repetición masiva.} Ejecutamos cada versión entre 50 y 1000 veces y graficamos el parámetro corrida a corrida.
-  \item \textbf{Señal de la carrera = no determinismo.} La versión con carrera entrega resultados distintos entre corridas (nube dispersa); la corregida entrega siempre el mismo resultado correcto (línea plana, desviación estándar 0).
+  \item \textbf{Señal de la race condition = no determinismo.} La versión con race condition entrega resultados distintos entre corridas (nube dispersa); la corregida entrega siempre el mismo resultado correcto (línea plana, desviación estándar 0).
   \item \textbf{Respaldo de recursos.} Además del parámetro discriminante medimos tiempo, uso de CPU y memoria máxima (MaxRSS) con \cod{/usr/bin/time}.
-  \item \textbf{Amplificación de la ventana crítica.} Donde la ventana es de nanosegundos, se agrega trabajo simulado (un bucle corto) en el punto donde el código real lee un archivo o recorre una tabla, para que la carrera sea reproducible.
+  \item \textbf{Amplificación de la ventana crítica.} Donde la ventana es de nanosegundos, se agrega trabajo simulado (un bucle corto) en el punto donde el código real lee un archivo o recorre una tabla, para que la race condition sea reproducible.
 \end{enumerate}
 
 \textbf{Entorno.} Ubuntu sobre WSL2 (kernel 6.18), procesador Intel Core i5-12450HX con 12 hilos lógicos, \cod{gcc} 15.2 con \cod{-O2 -pthread}. Todo el proceso es reproducible con \cod{informe/experimentos/run.sh} (corre los experimentos y guarda los CSV) y \cod{graficos.py} (genera las figuras y los números de las tablas).
 
-Un hallazgo transversal: en cinco de las siete familias el discriminador es la \emph{corrección del dato}, no el tiempo ni la memoria. Una carrera de escritura concurrente no agota recursos: corrompe la consistencia del estado compartido. La excepción son los cuelgues (familias 6 y 7), donde el discriminador sí es el tiempo, porque el proceso defectuoso nunca termina. Como varios casos de prueba ejercitan la misma carrera en escenarios distintos, los agrupamos en seis familias según el recurso compartido y la primitiva involucrada, y agregamos una séptima que mide el juego completo antes y después de la integración; la correspondencia se resume en la Tabla~\ref{tab:corresp}.
+\textbf{Familias.} Varios casos de prueba ejercitan la misma race condition, así que agrupamos los experimentos por el recurso compartido y la primitiva que lo protege; cada grupo es una \emph{familia}. Hay seis: las cinco primeras aíslan una race condition en un programa corto y la sexta reúne los cuelgues (cierre e interbloqueo), con un sub-caso medido en el juego completo antes y después de la integración (Tabla~\ref{tab:corresp}). En las cinco primeras la race condition se delata por la \emph{corrección del dato}, no por el tiempo ni la memoria; en la de cuelgues (6), por el tiempo.
 
 \subsection{Validación de extremo a extremo con el juego real}
 
-Antes de aislar cada carrera verificamos que el sistema completo sea determinista: ejecutamos el binario real (rama \cod{main} con todas las correcciones de integración, commit \cod{1660eaa}; corrido en un contenedor Docker con \cod{gcc} 13, igual que la Familia~7) \NjuegoN{} veces en cada caso de prueba y comparamos el \emph{hash} de la salida completa (todas las líneas de P0, P1, P2 y P3, en orden). Si alguna carrera alterara el orden o el resultado de un solo tick, aparecería más de un hash distinto.
+Antes de aislar cada race condition verificamos que el sistema completo sea determinista: ejecutamos la versión final del juego \NjuegoN{} veces en cada caso de prueba y comparamos la salida completa (todas las líneas de P0, P1, P2 y P3, en orden). Si alguna race condition alterara el orden o el resultado de un solo tick, aparecería más de una salida distinta.
 
 \begin{table}[H]
 \centering\small
@@ -259,38 +254,39 @@ Antes de aislar cada carrera verificamos que el sistema completo sea determinist
 \midrule
 \input{figuras/tabla_juego.tex}
 \end{tabular}
-\caption{Determinismo del juego completo: número de salidas distintas (por \emph{hash}) entre todas las corridas de cada caso. El resultado final es la última línea del programa; resultado 1 = máximo de ticks, 2 = derrota, 3 = victoria, 4 = sin movimientos. Tiempo medio por corrida (ms) y memoria máxima (MB).}
+\caption{Determinismo del juego completo: número de salidas distintas entre todas las corridas de cada caso. El resultado final es la última línea del programa; resultado 1 = máximo de ticks, 2 = derrota, 3 = victoria, 4 = sin movimientos. Tiempo medio por corrida (ms) y memoria máxima (MB).}
 \label{tab:juego}
 \end{table}
 
 \NJuegoTexto
 
-Complementariamente, compilamos con \cod{make tsan} (ThreadSanitizer) y corrimos los cinco casos: no se reportó ninguna carrera de datos entre hilos. ThreadSanitizer observa los hilos de un proceso, pero no los accesos entre procesos distintos sobre \cod{mmap}; por eso las familias siguientes se demuestran con experimentos dedicados.
+Complementariamente, compilamos con \cod{make tsan} (ThreadSanitizer) y corrimos los cinco casos: no se reportó ninguna data race entre hilos. ThreadSanitizer observa los hilos de un proceso, pero no los accesos entre procesos distintos sobre \cod{mmap}; por eso las familias siguientes se demuestran con experimentos dedicados.
 
 % -----------------------------------------------------------------------------
 \subsection{Familia 1 --- Vidas de Bomberman y regla de un solo escritor}
 
-\textbf{La carrera que encontramos.} Al diseñar los daños, lo natural era que quien detecta el golpe restara la vida: P2 al detectar un choque y P3 al detectar fuego sobre Bomberman. Pero \cod{bomber\_lives--} es un ciclo leer--modificar--escribir; si dos procesos lo ejecutan a la vez sin exclusión, uno sobrescribe al otro y se pierde un descuento (\emph{lost update}). El caso \cod{caso\_demo} lo provoca: en el tick 5 explotan dos bombas en cadena con Bomberman dentro del fuego.
+\textbf{El problema.} Al diseñar los daños, lo natural era que quien detecta el golpe restara la vida: P2 al detectar un choque y P3 al detectar fuego sobre Bomberman. Pero restar una vida (\cod{bomber\_lives-{}-}) no es una sola operación, sino tres: \emph{leer} el valor, \emph{restar} uno y \emph{escribir} el resultado. Si P2 y P3 la ejecutan a la vez, ambos leen 3, ambos escriben 2 y un golpe se pierde: debería quedar 1 y queda 2 (\emph{lost update}).
 
-\textbf{Técnica aplicada.} Centralizar la actualización en P0 como único escritor. P2 y P3 solo publican su evento (\cod{collision\_detected}, \cod{blast\_hit\_bomber}) bajo \cod{events\_mtx}; \cod{event\_thread} los lee, descuenta como máximo una vida por tick y baja las banderas.
+\textbf{La solución.} Un solo proceso modifica las vidas: P0. P2 y P3 ya no restan; solo dejan un aviso (\cod{collision\_detected}, \cod{blast\_hit\_bomber}) protegido por \cod{events\_mtx}. Al cierre del tick, \cod{event\_thread} lee los avisos, descuenta como máximo una vida y los borra.
 
-\textbf{Experimento.} Dos procesos hijos (P2 y P3) reportan un millón de golpes cada uno. En la versión con falla ambos hacen \cod{bomber\_lives--} directamente en la memoria compartida; en la corregida cada uno incrementa solo \emph{su} contador de eventos y P0 aplica los descuentos. \NunoN{} corridas por versión; métrica: descuentos perdidos respecto del valor correcto.
+\textbf{Cómo lo medimos.} En el juego dos golpes simultáneos son raros y la ventana dura nanosegundos, así que exageramos la situación: P2 y P3 descuentan un millón de golpes cada uno sobre el mismo contador (lo correcto es perder cero). \NunoN{} corridas por versión.
 
-\textbf{Resultado.} Sin la solución se pierde en promedio el \NunoBugMediaPct\,\% de los descuentos (media \NunoBugMedia, rango \NunoBugMin--\NunoBugMax, $\sigma = \NunoBugSd$) y el \NunoBugPct\,\% de las corridas termina con las vidas correctas. Con la solución, el \NunoOkPct\,\% de las corridas da exactamente el valor esperado ($\sigma = 0$). $\to$ \emph{Carrera resuelta}.
+\textbf{Resultado.} En la Figura~\ref{fig:f1} cada punto es una corrida. Sin la solución (naranja) se pierde en promedio el \NunoBugMediaPct\,\% de los descuentos (\NunoBugMedia{} de dos millones), y cada corrida pierde una cantidad distinta: depende de quién llegó primero. Con la solución (azul) se pierden cero en todas. Tiempo y memoria son iguales en ambas versiones (Tabla~\ref{tab:f1}): la falla no vuelve lento al programa, deja el dato mal. En el juego, \cod{caso\_demo} lo confirma: dos explosiones en el mismo tick y una sola vida perdida. $\to$ \emph{Race condition resuelta}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f1_dispersion.pdf}
-\caption{Dispersión de la familia Vidas.}
+\includegraphics[width=0.7\textwidth]{figuras/f1_dispersion.pdf}
+\caption{Familia 1: descuentos perdidos en cada corrida. Naranja: P2 y P3 restan la vida directamente; azul: solo P0 la resta.}
+\label{fig:f1}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f1_temporal.pdf}
-\caption{Diagrama temporal de la familia Vidas: colisión y explosión en el mismo tick.}
+\includegraphics[width=0.72\textwidth]{figuras/f1_temporal.pdf}
+\caption{Familia 1: choque y explosión en el mismo tick. P2 y P3 solo avisan y P0 descuenta una sola vida.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
@@ -300,39 +296,38 @@ P0 único escritor (corregido) & \NunoOkPct\,\% & \NunoOkTiempo & \NunoOkCpu & \
 P2 y P3 escriben (con falla) & \NunoBugPct\,\% & \NunoBugTiempo & \NunoBugCpu & \NunoBugMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas de la familia Vidas.}
+\caption{Métricas de la Familia 1.}
+\label{tab:f1}
 \end{table}
-
-\textbf{Interpretación.} Tiempo, CPU y memoria son del mismo orden en ambas versiones: los procesos hacen el mismo trabajo y ocupan lo mismo. La carrera no agota recursos, corrompe el dato; por eso lo que la delata es la exactitud de las vidas, y en la gráfica aparece como no determinismo: la versión con falla se dispersa y la corregida es una línea plana en 0. En el juego real esta regla se ve en \cod{caso\_demo}: dos explosiones en el mismo tick y una sola vida perdida (3 $\to$ 2).
 
 % -----------------------------------------------------------------------------
 \subsection{Familia 2 --- Uso correcto de semáforos en P2}
 
-Los semáforos importan de dos formas, y nos topamos con una carrera en cada una: en el \emph{orden} (cuándo corre algo) y en la \emph{equidad} (quién atiende cada turno). A estas se suma un tercer caso, encontrado al revisar el código real.
+Los semáforos deciden \emph{cuándo} corre cada hilo y \emph{quién} atiende cada turno. En P2 encontramos una race condition de cada tipo y una tercera al revisar el código real.
 
 \paragraph{(a) Orden --- barrera antes de \cod{collision\_thread}.}
 
-\textbf{La carrera que encontramos.} Los cuatro enemigos se mueven en paralelo y luego \cod{collision\_thread} compara sus posiciones con la de Bomberman. Sin sincronización, el detector leía posiciones mientras los enemigos aún se movían: posiciones a medio actualizar y, por tanto, colisiones falsas o perdidas.
+\textbf{El problema.} En el turno de P2 los cuatro enemigos se mueven en paralelo y luego \cod{collision\_thread} compara sus posiciones con la de Bomberman. Si el detector no espera, puede leer mientras algún enemigo todavía se está moviendo: ve una mezcla de posiciones nuevas y viejas (una \emph{lectura sucia}) y detecta un choque que no ocurrió o pierde uno que sí.
 
-\textbf{Técnica aplicada.} Una barrera con el semáforo contador \cod{sem\_enemy\_done}: el controlador hace \cod{sem\_wait} una vez por cada enemigo vivo antes de despertar a \cod{collision\_thread}.
+\textbf{La solución.} Una barrera: cada enemigo avisa al terminar con \cod{sem\_enemy\_done}, y el controlador espera un aviso por cada enemigo vivo antes de despertar al detector. Así el detector solo ve posiciones finales.
 
-\textbf{Experimento.} Versión sin barrera contra versión con barrera, \NdosN{} corridas de 200 turnos cada una. Métrica: turnos en los que el detector leyó alguna posición que no era la final del turno (lectura sucia).
+\textbf{Cómo lo medimos.} \NdosN{} corridas de 200 turnos por versión; contamos los turnos en que el detector leyó alguna posición que no era la final.
 
-\textbf{Resultado.} Sin la barrera, las lecturas sucias varían entre corridas (media \NdosBugMedia, rango \NdosBugMin--\NdosBugMax, $\sigma = \NdosBugSd$): \NdosBugLimpias\,\% de corridas limpias. Con la barrera, 0 siempre: \NdosOkLimpias\,\% de corridas limpias. $\to$ \emph{Carrera resuelta}.
+\textbf{Resultado.} Sin barrera, ninguna corrida queda limpia: en promedio hay \NdosBugMedia{} turnos con lecturas sucias de cada 200 y la cantidad cambia en cada corrida. Con barrera, cero en todas. $\to$ \emph{Race condition resuelta}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f2_dispersion.pdf}
-\caption{Dispersión de la familia Semáforos (barrera).}
+\includegraphics[width=0.7\textwidth]{figuras/f2_dispersion.pdf}
+\caption{Familia 2a: turnos con lecturas sucias en cada corrida. Naranja: sin barrera; azul: con barrera.}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f2_temporal.pdf}
-\caption{Diagrama temporal de la familia Semáforos: la barrera y la lectura de posiciones.}
+\includegraphics[width=0.72\textwidth]{figuras/f2_temporal.pdf}
+\caption{Familia 2a: el detector espera en la barrera hasta que los cuatro enemigos terminan de moverse.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
@@ -342,28 +337,26 @@ Con barrera (corregido) & 0 & \NdosOkTiempo & \NdosOkCpu & \NdosOkMem\\
 Sin barrera (con falla) & \NdosBugMedia{} (rango \NdosBugMin--\NdosBugMax) & \NdosBugTiempo & \NdosBugCpu & \NdosBugMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas de la familia Semáforos (orden).}
+\caption{Métricas de la Familia 2a.}
 \end{table}
-
-\textbf{Interpretación.} Los recursos son del mismo orden en ambas versiones; sin la barrera el programa es incluso algo más rápido porque no espera a los hilos. Quitar la barrera no agota recursos, solo cambia el orden de ejecución. El parámetro que revela la carrera es la lectura sucia.
 
 \paragraph{(b) Equidad --- un semáforo por enemigo.}
 
-\textbf{La carrera que encontramos.} Si se despierta a los cuatro enemigos con un único semáforo contador posteado cuatro veces por turno, nada garantiza que cada enemigo tome exactamente una ficha: uno que ya está en CPU puede tomar dos y otro quedarse sin mover. En el juego esto significa que un enemigo ejecuta dos instrucciones en un turno y otro ninguna.
+\textbf{El problema.} Una forma sencilla de despertar a los cuatro enemigos es un único semáforo con cuatro fichas: el controlador hace \cod{sem\_post} cuatro veces y cada enemigo toma una. Pero nada obliga a que cada uno tome exactamente una: el que ya está corriendo puede tomar dos y otro quedarse sin ninguna. En el juego, un enemigo se movería dos veces en un turno y otro ninguna.
 
-\textbf{Técnica aplicada.} Un semáforo por enemigo, \cod{sem\_start\_enemy[i]}: el controlador postea uno a cada enemigo vivo, y así cada uno atiende exactamente su turno.
+\textbf{La solución.} Un semáforo por enemigo (\cod{sem\_start\_enemy[i]}): el controlador despierta a cada uno por separado.
 
-\textbf{Experimento.} 25\,000 turnos por enemigo (100\,000 fichas por corrida); contamos cuántas atiende cada uno. Versión con un semáforo compartido contra versión con uno por enemigo, \NequiN{} corridas.
+\textbf{Cómo lo medimos.} 25\,000 turnos por enemigo y \NequiN{} corridas por versión; contamos cuántos atendió cada uno.
 
-\textbf{Resultado.} Con el semáforo compartido el reparto es desigual y cambia en cada corrida: en la corrida mediana los enemigos atendieron \NequiRepA, \NequiRepB, \NequiRepC{} y \NequiRepD{} turnos (desbalance de \NequiRepDes, un \NequiRepPct\,\% del ideal). Sobre las \NequiN{} corridas, el desbalance (máx $-$ mín) fue en promedio \NequiBugMedia{} turnos ($\sigma = \NequiBugSd$), llegando a \NequiBugMax{} en el peor caso (un enemigo atendió \NequiPeorMax{} y otro \NequiPeorMin). Con un semáforo por enemigo los cuatro atienden exactamente 25\,000 siempre (desbalance \NequiOkMax). $\to$ \emph{Carrera resuelta}.
+\textbf{Resultado.} Con el semáforo compartido el reparto nunca es parejo y cambia en cada corrida: en una corrida típica los enemigos atendieron \NequiRepA, \NequiRepB, \NequiRepC{} y \NequiRepD{} turnos, y en el peor caso uno atendió \NequiPeorMax{} y otro \NequiPeorMin. Con un semáforo por enemigo, los cuatro atienden exactamente 25\,000 siempre. El trabajo total es el mismo; solo cambia \emph{quién} lo hace. $\to$ \emph{Race condition resuelta}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f2_barras.pdf}
-\caption{Turnos atendidos por cada enemigo (familia Semáforos, equidad).}
+\includegraphics[width=0.7\textwidth]{figuras/f2_barras.pdf}
+\caption{Familia 2b: turnos atendidos por cada enemigo. Lo correcto son 25\,000 para cada uno.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Yccc@{}}
 \toprule
@@ -373,49 +366,49 @@ Sin barrera (con falla) & \NdosBugMedia{} (rango \NdosBugMin--\NdosBugMax) & \Nd
 Un semáforo compartido (con falla) & \NequiBugMedia{} en promedio (hasta \NequiBugMax) & \NequiBugTiempo & \NequiBugCpu\\
 \bottomrule
 \end{tabularx}
-\caption{Desbalance de turnos entre enemigos.}
+\caption{Métricas de la Familia 2b: diferencia entre el enemigo que más turnos atendió y el que menos.}
 \end{table}
-
-\textbf{Interpretación.} Ambas versiones hacen el mismo trabajo (100\,000 fichas), así que el costo es comparable; lo único que cambia es \emph{quién} atiende cada turno. El parámetro que revela la carrera es el reparto, no los recursos.
 
 \paragraph{(c) Orden en el código real --- rastreador antes del detector.}
 
-\textbf{La carrera que encontramos.} Al revisar \cod{enemy.c} notamos que, después de la barrera, \cod{enemy\_controller\_thread} despierta \emph{a la vez} a \cod{bomber\_tracker\_thread} (que copia la posición de Bomberman) y a \cod{collision\_thread} (que compara contra esa copia). Ambos usan \cod{local\_pos\_mtx}, así que no hay carrera de datos y ThreadSanitizer no reporta nada; pero si el detector toma el mutex primero, compara contra la copia del turno anterior de P2. Si Bomberman se movió entre medio, el choque se pierde o se detecta donde ya no está.
+\textbf{El problema.} Después de la barrera, P2 debe hacer dos cosas en orden: primero el rastreador copia la posición actual de Bomberman, y después el detector compara a los enemigos contra esa copia. En una versión anterior de P2 el controlador despertaba a los dos \emph{a la vez}. Si el detector ganaba, comparaba contra la copia del turno anterior y, si Bomberman se había movido, el choque se perdía. Los datos estaban protegidos por \cod{local\_pos\_mtx}, así que ThreadSanitizer no reportaba nada: el error era de \emph{orden}, no de datos.
 
-\textbf{Experimento.} Armamos un caso mínimo (\cod{experimentos/caso\_tracker}, prioridades 30/30, 2 ticks): en el tick 1 Bomberman avanza a (2,1) y en el tick 2 ---el primer turno de P2--- el enemigo A entra en esa misma celda. El choque solo se detecta si el detector usa la copia \emph{nueva} de la posición. Compilamos el \cod{enemy.c} real en tres variantes y corrimos cada una \NtrackN{} veces: tal cual está; con un retardo de 2~ms al inicio de \cod{bomber\_tracker\_thread} (amplificación); y con ese retardo más la corrección propuesta (despertar al rastreador, esperar \cod{sem\_tracker\_done} y recién entonces despertar al detector). El script es \cod{experimentos/e2c\_tracker.py}.
+\textbf{La solución.} Despertar primero al rastreador, esperar a que termine (\cod{sem\_tracker\_done}) y recién entonces despertar al detector.
 
-\textbf{Resultado.} \NTrackerTexto{} $\to$ \emph{Carrera encontrada en el código de P2 del PR~\#21; la corrección se integró en \cod{main} con el PR~\#26 y es la versión que hoy usa el juego}.
+\textbf{Cómo lo medimos.} Armamos un caso mínimo (\cod{caso\_tracker}, prioridades 30/30, 2 ticks): en el tick 1 Bomberman avanza a (2,1) y en el tick 2, el primer turno de P2, el enemigo A entra en esa misma celda. El choque solo se detecta si el detector usa la copia nueva. Corrimos el código real de P2 \NtrackN{} veces: tal cual, con un retardo de 2~ms en el rastreador (para agrandar la ventana) y con el retardo más la corrección.
 
-\begin{figure}[H]
+\textbf{Resultado.} \NTrackerTexto{} $\to$ \emph{Race condition encontrada en una versión anterior de P2 y corregida en la versión final}.
+
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f2c_barras.pdf}
-\caption{Familia Semáforos, orden en el código real: porcentaje de corridas que detectan el choque.}
+\includegraphics[width=0.75\textwidth]{figuras/f2c_barras.pdf}
+\caption{Familia 2c: porcentaje de corridas que detectan el choque en \cod{caso\_tracker}.}
 \end{figure}
 
 % -----------------------------------------------------------------------------
 \subsection{Familia 3 --- Orden de las fases de P3 (temporizador y explosión)}
 
-\textbf{La carrera que encontramos.} En P3, \cod{fuse\_thread} decrementa los temporizadores y \cod{explosion\_thread} detona las bombas que llegaron a 0. Ambos hilos protegen la tabla \cod{bombs[]} con \cod{bombs\_mtx}, así que no hay carrera de datos; pero si se los despierta a la vez, \cod{explosion\_thread} puede revisar la tabla \emph{antes} del último decremento y la bomba explota un tick tarde. Es una carrera de orden que rompe la regla del juego ``una bomba pedida en $t$ explota en $t+3$'' y cambia quién queda dentro del fuego.
+\textbf{El problema.} En cada tick, P3 hace dos cosas con la tabla de bombas: \cod{fuse\_thread} baja en uno el temporizador de cada bomba y \cod{explosion\_thread} hace explotar las que llegaron a cero. El orden importa: si ambos hilos se despiertan a la vez y el de explosión revisa la tabla \emph{antes} de que baje el temporizador, ve la bomba en 1, no la explota, y la bomba estalla un tick tarde. Se rompe la regla ``una bomba pedida en $t$ explota en $t+3$'' y cambia quién queda dentro del fuego. La tabla está protegida por \cod{bombs\_mtx}, pero el mutex solo impide que los dos la usen a la vez; no decide quién va primero.
 
-\textbf{Técnica aplicada.} Una posta de semáforos dentro de P3: el controlador hace \cod{sem\_post(sem\_fuse\_go)}, espera \cod{sem\_fuse\_done}, y solo entonces hace \cod{sem\_post(sem\_explosion\_go)}. El registro de bombas nuevas va al final del turno.
+\textbf{La solución.} Una posta de semáforos: el controlador despierta al temporizador, espera a que termine y recién entonces despierta a la explosión.
 
-\textbf{Experimento.} 800 ticks por corrida colocando una bomba nueva en cuanto la anterior explota (unas \NtresBombas{} bombas por corrida); \NtresN{} corridas por versión. Métrica: bombas que explotan en un tick distinto de $t+3$.
+\textbf{Cómo lo medimos.} 800 ticks con unas \NtresBombas{} bombas por corrida y \NtresN{} corridas por versión; contamos las bombas que no explotan en $t+3$.
 
-\textbf{Resultado.} Con las fases en paralelo, en promedio \NtresBugMedia{} bombas por corrida explotan fuera de tiempo (rango \NtresBugMin--\NtresBugMax, $\sigma = \NtresBugSd$); solo el \NtresBugLimpias\,\% de las corridas queda limpio. Con la posta, \NtresOkLimpias\,\% de corridas sin ninguna bomba fuera de tiempo. $\to$ \emph{Carrera resuelta}.
+\textbf{Resultado.} Con los dos hilos en paralelo, en promedio \NtresBugMedia{} bombas por corrida explotan fuera de tiempo (hasta \NtresBugMax), y solo el \NtresBugLimpias\,\% de las corridas queda sin errores. Con la posta, ninguna bomba se atrasa. En el juego real (Figura~\ref{fig:turnos}) la bomba registrada en el tick 3 explota en el 6 y la del 5 en el 8: siempre a $t+3$. Esta familia muestra que un mutex protege el \emph{dato}, pero no el \emph{orden}. $\to$ \emph{Race condition resuelta}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f3_dispersion.pdf}
-\caption{Dispersión de la familia Fases de P3.}
+\includegraphics[width=0.7\textwidth]{figuras/f3_dispersion.pdf}
+\caption{Familia 3: bombas que explotan fuera de $t+3$ en cada corrida. Naranja: temporizador y explosión en paralelo; azul: con posta.}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f3_temporal.pdf}
-\caption{Diagrama temporal de la familia Fases de P3.}
+\includegraphics[width=0.72\textwidth]{figuras/f3_temporal.pdf}
+\caption{Familia 3: la explosión no arranca hasta que el temporizador terminó.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
@@ -425,35 +418,33 @@ fuse $\to$ explosion (corregido) & 0 & \NtresOkTiempo & \NtresOkCpu & \NtresOkMe
 En paralelo (con falla) & \NtresBugMedia & \NtresBugTiempo & \NtresBugCpu & \NtresBugMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas de la familia Fases de P3.}
+\caption{Métricas de la Familia 3.}
 \end{table}
-
-\textbf{Interpretación.} Esta familia muestra que un mutex no basta: protege el \emph{dato} pero no el \emph{orden}. Los recursos son prácticamente iguales; lo que cambia es el tick en que ocurre la explosión. En el juego real, \cod{caso\_ejemplo} con prioridades 40/30 registra la bomba en el tick 3 y la detona en el tick 6, y con 30/30 la registra en el 5 y la detona en el 8, siempre a $t+3$.
 
 % -----------------------------------------------------------------------------
 \subsection{Familia 4 --- Buzones entre procesos (bomba y prioridad)}
 
-\textbf{La carrera que encontramos.} Los pedidos de P1 viajan en buzones de varios campos: \cod{bomb\_request\_x}, \cod{bomb\_request\_y} y \cod{bomb\_request\_active} para la bomba, y \cod{pending\_priority\_*} con su bandera para la prioridad. Si P3 lee el buzón mientras P1 lo escribe, puede ver una coordenada nueva junto con otra vieja (\emph{torn read}) y colocar la bomba en una celda que nadie pidió.
+\textbf{El problema.} Cuando P1 pide una bomba, deja el pedido en un buzón de tres campos: la coordenada $x$, la coordenada $y$ y una bandera de ``pedido activo''; el pedido de prioridad funciona igual. Escribir los tres campos toma varios pasos. Si P3 lee el buzón justo mientras P1 lo está escribiendo, puede ver la $x$ nueva junto con la $y$ vieja (una \emph{lectura rota}) y colocar la bomba en una celda que nadie pidió.
 
-\textbf{Técnica aplicada.} Dos capas. Primero, el \emph{lock-step}: P1 solo escribe el buzón durante su turno y P3 solo lo lee durante el suyo, así que nunca se solapan. Segundo, el lector toma el mutex del buzón (\cod{bomb\_req\_mtx} en P3, \cod{prio\_mtx} en P0), configurado con \cod{PTHREAD\_PROCESS\_SHARED} para que funcione entre procesos. El experimento muestra qué ocurre si ambos lados acceden a la vez y cuál es la protección completa: que el escritor también tome el mutex (ver Recomendaciones).
+\textbf{La solución.} El \emph{lock-step} ya evita que coincidan (P1 escribe en su turno y P3 lee en el suyo) y, además, ambos toman el mutex del buzón (\cod{bomb\_req\_mtx} o \cod{prio\_mtx}, compartido entre procesos) para escribir o leer los tres campos de una vez.
 
-\textbf{Experimento.} P1 (proceso hijo) escribe 200\,000 pedidos en los que siempre $x = y$; P3 (proceso padre) atiende el buzón y cuenta cuántas veces lee $x \ne y$. Versión sin mutex contra versión con mutex, \NcuatroN{} corridas. Métrica: lecturas rotas.
+\textbf{Cómo lo medimos.} Sin turnos, P1 escribe 200\,000 pedidos con $x = y$ mientras P3 lee sin parar; si P3 lee $x \ne y$, leyó un pedido a medio escribir. \NcuatroN{} corridas por versión.
 
-\textbf{Resultado.} Sin el mutex, P3 detecta en promedio \NcuatroBugMedia{} lecturas rotas por corrida (rango \NcuatroBugMin--\NcuatroBugMax, $\sigma = \NcuatroBugSd$): solo el \NcuatroBugLimpias\,\% de corridas queda limpio. Con el mutex, 0 siempre: \NcuatroOkLimpias\,\% limpias. $\to$ \emph{Carrera resuelta}.
+\textbf{Resultado.} Sin mutex, P3 encuentra en promedio \NcuatroBugMedia{} lecturas rotas por corrida (hasta \NcuatroBugMax), y solo el \NcuatroBugLimpias\,\% de las corridas queda limpio. Con mutex, cero siempre. Es menos del 1\,\% de los pedidos, por eso jugando casi no se ve, pero basta uno para mandar una bomba a otra celda. El mutex hace la corrida más lenta porque los procesos se turnan el buzón: es el costo de la protección. $\to$ \emph{Race condition resuelta}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f4_dispersion.pdf}
-\caption{Dispersión de la familia Buzones.}
+\includegraphics[width=0.7\textwidth]{figuras/f4_dispersion.pdf}
+\caption{Familia 4: lecturas rotas del buzón en cada corrida. Naranja: sin mutex; azul: con mutex.}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f4_temporal.pdf}
-\caption{Diagrama temporal de la familia Buzones: lectura a medio actualizar.}
+\includegraphics[width=0.72\textwidth]{figuras/f4_temporal.pdf}
+\caption{Familia 4: P3 lee el buzón mientras P1 todavía lo está escribiendo.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
@@ -463,35 +454,33 @@ Con \cod{bomb\_req\_mtx} (corregido) & 0 & \NcuatroOkTiempo & \NcuatroOkCpu & \N
 Sin mutex (con falla) & \NcuatroBugMedia & \NcuatroBugTiempo & \NcuatroBugCpu & \NcuatroBugMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas de la familia Buzones.}
+\caption{Métricas de la Familia 4.}
 \end{table}
-
-\textbf{Interpretación.} Aquí el tiempo y la CPU sí difieren, pero por un efecto colateral del mutex y no por la carrera: con el mutex los dos procesos se turnan el buzón y el escritor ya no corre libre, por lo que la corrida tarda más y usa más CPU (ambos procesos compiten por el candado). La memoria es la misma. Lo que demuestra la carrera siguen siendo las lecturas rotas. Las ventanas son de nanosegundos: en una corrida típica se rompe menos del 1\,\% de los pedidos, lo que hace a esta carrera difícil de ver jugando, pero suficiente para mandar una bomba a una celda equivocada.
 
 % -----------------------------------------------------------------------------
 \subsection{Familia 5 --- Cola productor--consumidor de P1}
 
-\textbf{La carrera que encontramos.} En P1, \cod{movement\_reader\_thread} lee el archivo completo en microsegundos, mientras que \cod{movement\_executor\_thread} consume una instrucción por turno. La cola es circular de 100 casilleros (\cod{instruction\_queue}, \cod{q\_head}, \cod{q\_tail}). Si el lector no espera a que haya espacio, da la vuelta al buffer y sobrescribe instrucciones que todavía no se ejecutaron: con un archivo de más de 100 líneas, Bomberman se ``saltaría'' movimientos.
+\textbf{El problema.} En P1, el lector carga las instrucciones del archivo en una cola de 100 casilleros y el ejecutor saca una por turno. El lector es mucho más rápido y la cola es circular: si no espera a que haya espacio, da la vuelta y escribe encima de instrucciones que aún no se ejecutaron; con un archivo de más de 100 líneas, Bomberman se saltaría movimientos.
 
-\textbf{Técnica aplicada.} Buffer acotado con dos semáforos contadores: \cod{sem\_espacios} (inicia en 100) y \cod{sem\_items} (inicia en 0), más \cod{queue\_mtx} para \cod{q\_head} y \cod{q\_tail}. El lector hace \cod{sem\_wait(sem\_espacios)} antes de escribir y el ejecutor \cod{sem\_post(sem\_espacios)} después de leer.
+\textbf{La solución.} Dos semáforos contadores, como en el productor--consumidor clásico: \cod{sem\_espacios} cuenta los casilleros libres (empieza en 100) y \cod{sem\_items} las instrucciones pendientes (empieza en 0). El lector espera un casillero libre antes de escribir y el ejecutor libera uno al sacar una instrucción. Un mutex (\cod{queue\_mtx}) protege los índices de la cola.
 
-\textbf{Experimento.} El lector inserta 200\,000 instrucciones numeradas; el ejecutor las consume con un pequeño trabajo por instrucción. Versión sin \cod{sem\_espacios} contra la versión completa, \NcincoN{} corridas. Métrica: instrucciones nunca ejecutadas.
+\textbf{Cómo lo medimos.} 200\,000 instrucciones numeradas y \NcincoN{} corridas por versión; contamos las que nunca se ejecutaron.
 
-\textbf{Resultado.} Sin \cod{sem\_espacios} se pierden en promedio \NcincoBugMedia{} instrucciones por corrida (el \NcincoBugMediaPct\,\%; rango \NcincoBugMin--\NcincoBugMax, $\sigma = \NcincoBugSd$): \NcincoBugLimpias\,\% de corridas sin pérdida. Con el semáforo, 0 pérdidas siempre: \NcincoOkLimpias\,\% de corridas íntegras. $\to$ \emph{Carrera resuelta}.
+\textbf{Resultado.} Sin \cod{sem\_espacios} se pierde en promedio el \NcincoBugMediaPct\,\% de las instrucciones (\NcincoBugMedia{} de 200\,000), y ninguna corrida queda completa. Con el semáforo no se pierde ninguna. La versión con falla es cuatro veces más rápida justamente porque el lector nunca espera. $\to$ \emph{Race condition resuelta}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f5_dispersion.pdf}
-\caption{Dispersión de la familia Cola.}
+\includegraphics[width=0.7\textwidth]{figuras/f5_dispersion.pdf}
+\caption{Familia 5: instrucciones perdidas en cada corrida. Naranja: sin \cod{sem\_espacios}; azul: con él.}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f5_temporal.pdf}
-\caption{Diagrama temporal de la familia Cola: el lector frente a la cola llena.}
+\includegraphics[width=0.72\textwidth]{figuras/f5_temporal.pdf}
+\caption{Familia 5: con la cola llena, el lector espera a que el ejecutor libere un casillero.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
@@ -501,43 +490,44 @@ Con \cod{sem\_espacios} (corregido) & 0 & \NcincoOkTiempo & \NcincoOkCpu & \Ncin
 Sin \cod{sem\_espacios} (con falla) & \NcincoBugMedia & \NcincoBugTiempo & \NcincoBugCpu & \NcincoBugMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas de la familia Cola.}
+\caption{Métricas de la Familia 5.}
 \end{table}
-
-\textbf{Interpretación.} La versión con falla es incluso más rápida: el lector nunca se bloquea y termina en cuanto escribe, aunque sea encima de datos vivos. La versión correcta tarda más porque el lector y el ejecutor se alternan, que es justamente lo que se busca. Ninguno de los indicadores de hardware revela la falla; lo que la demuestra es la cantidad de instrucciones perdidas, que llega al \NcincoBugMaxPct\,\% en el peor caso.
 
 % -----------------------------------------------------------------------------
 \subsection{Familia 6 --- Cierre e interbloqueo}
 
+Las fallas de esta familia no corrompen datos: \emph{cuelgan} el programa. Los procesos quedan dormidos esperando algo que nunca llega, lo que se conoce como \emph{interbloqueo} (\emph{deadlock}).
+
 \paragraph{(a) Liberación ordenada al terminar.}
 
-\textbf{El defecto que encontramos.} Cuando el juego termina, P1, P2 y P3 están bloqueados en \cod{sem\_wait} esperando un turno que ya no llegará, y dentro de P3 los hilos \cod{fuse\_thread} y \cod{explosion\_thread} esperan su propio semáforo. Si P0 marca \cod{game\_over} y llama directamente a \cod{waitpid}, los hijos nunca despiertan para ver la bandera, y \cod{waitpid} espera para siempre: un interbloqueo. Es una falla de \emph{liveness}: el programa no se cae, se cuelga.
+\textbf{El problema.} Cuando el juego termina, P1, P2 y P3 están dormidos en \cod{sem\_wait} esperando un turno que ya no llegará. Si P0 marca el fin del juego y se pone a esperar a sus hijos con \cod{waitpid}, los hijos nunca despiertan para enterarse, y P0 los espera para siempre.
 
-\textbf{Técnica aplicada.} Cierre ordenado en cadena: cada hilo de P0 pasa la posta antes de salir; \cod{signal\_thread} hace \cod{sem\_post} a \cod{sem\_bomber\_turn}, \cod{sem\_enemy\_turn}, \cod{sem\_bomb\_turn} y \cod{sem\_render}; P3 pone \cod{terminar = 1} y despierta a sus dos hilos; recién después \cod{main} llama a \cod{waitpid}.
+\textbf{La solución.} Antes de esperar, P0 despierta a todos: \cod{signal\_thread} hace \cod{sem\_post} a los semáforos de turno de P1, P2, P3 y P4. Cada proceso despierta, ve la bandera de fin, despierta a sus propios hilos y termina. Recién entonces \cod{main} llama a \cod{waitpid}.
 
 \paragraph{(b) Orden global de adquisición de mutex.}
 
-\textbf{El defecto que encontramos.} En una versión de P3, \cod{explosion\_thread} tomaba \cod{bombs\_mtx} $\to$ \cod{map\_mtx}, mientras que \cod{registrar\_solicitudes} (en el controlador) tomaba \cod{map\_mtx} $\to$ \cod{bomb\_req\_mtx} $\to$ \cod{bombs\_mtx}: el orden invertido de dos candados. Lo corregimos en el commit ``P3: mismo orden de mutex y regla del fuego''. El mismo riesgo existe entre procesos: \cod{explosion\_thread} de P3 y \cod{event\_thread} de P0 necesitan a la vez \cod{map\_mtx}, \cod{events\_mtx} y \cod{state\_mtx}. Si uno tiene \cod{map\_mtx} y espera \cod{events\_mtx} mientras el otro tiene \cod{events\_mtx} y espera \cod{map\_mtx}, se produce espera circular.
+\textbf{El problema.} Si un hilo toma el mutex A y luego pide el B, mientras otro tiene el B y pide el A, cada uno espera al otro para siempre. En una versión de P3 pasaba exactamente esto: \cod{explosion\_thread} tomaba \cod{bombs\_mtx} y luego \cod{map\_mtx}, y el controlador los tomaba en el orden inverso.
 
-\textbf{Técnica aplicada.} Un orden global documentado en \cod{shared.h}: \cod{map} $\to$ \cod{bomber} $\to$ \cod{enemy} $\to$ \cod{bomb\_req} $\to$ \cod{prio} $\to$ \cod{events} $\to$ \cod{state}, respetado por todos los procesos (y la liberación en orden inverso).
+\textbf{La solución.} Un orden único para tomar los mutex, respetado por todos los procesos: \cod{map} $\to$ \cod{bomber} $\to$ \cod{enemy} $\to$ \cod{bomb\_req} $\to$ \cod{prio} $\to$ \cod{events} $\to$ \cod{state}. Si todos piden los candados en el mismo orden, nadie puede quedar esperando en círculo.
 
-\textbf{Experimento.} (a) Cuatro procesos que reproducen el \emph{lock-step} de 20 ticks y luego cierran, con y sin la liberación (\NseisAN{} corridas por versión, con un vigilante interno que interrumpe la corrida al cumplirse 1~s). (b) P0 y P3 como procesos que toman los tres mutex compartidos 20\,000 veces sin turnos (el peor caso), con el orden correcto y con el orden invertido (\NseisBN{} corridas, vigilante de 1~s). Métrica: si la corrida termina y en cuánto tiempo.
+\textbf{Cómo lo medimos.} Como la versión con falla nunca termina, medimos si cada corrida termina antes de 1~s: (a) cuatro procesos que juegan 20 ticks y cierran (\NseisAN{} corridas) y (b) dos procesos que toman los tres mutex 20\,000 veces (\NseisBN{} corridas).
 
-\textbf{Resultado.} (a) Con la liberación, el \NseisAOkCierra\,\% de las corridas cierra (mediana \NseisAOkMs~ms); sin ella, cierra el \NseisABugCierra\,\% y todas se interrumpen al llegar al \emph{timeout}. (b) Con el orden global, cierra el \NseisBOkCierra\,\% (mediana \NseisBOkMs~ms); con el orden invertido, el \NseisBBugCierra\,\%: los dos procesos quedan bloqueados cada uno con un candado que el otro necesita. En ambos casos la versión colgada consume casi 0\,\% de CPU, porque los procesos están dormidos en \cod{sem\_wait} o en el mutex y no girando. Presentamos la evidencia con una curva de distribución acumulada (ECDF): la versión corregida llega al 100\,\% en milisegundos y la defectuosa queda plana en 0\,\% (datos censurados por el \emph{timeout}). $\to$ \emph{Defectos resueltos}.
+\textbf{Resultado.} La Figura~\ref{fig:f6ecdf} muestra qué porcentaje de las corridas ya terminó en cada instante. Las versiones corregidas llegan al 100\,\% en pocos milisegundos (mediana de \NseisAOkMs{} y \NseisBOkMs~ms). Las defectuosas se quedan en 0\,\%: ninguna termina y todas se cortan al llegar al límite. Además usan casi 0\,\% de CPU: los procesos no están trabajando, sino dormidos esperando una señal que nunca llega. $\to$ \emph{Defectos resueltos}.
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{figuras/f6_temporal.pdf}
-\caption{Diagrama temporal de la familia Cierre: el \cod{sem\_post} que libera el cierre.}
+\includegraphics[width=0.72\textwidth]{figuras/f6_temporal.pdf}
+\caption{Familia 6a: el \cod{sem\_post} de P0 despierta a los hijos para que vean el fin del juego.}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=\textwidth]{figuras/f6_ecdf.pdf}
-\caption{Curva de terminación (ECDF) de la familia Cierre e interbloqueo.}
+\includegraphics[width=0.75\textwidth]{figuras/f6_ecdf.pdf}
+\caption{Familia 6: porcentaje de corridas que ya terminaron en cada instante. Las corregidas llegan al 100\,\%; las defectuosas nunca terminan.}
+\label{fig:f6ecdf}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
@@ -549,58 +539,51 @@ Sin \cod{sem\_espacios} (con falla) & \NcincoBugMedia & \NcincoBugTiempo & \Ncin
 (b) Orden invertido (con falla) & No (\NseisBBugCierra\,\% cierran) & \NseisBBugTiempo & \NseisBBugCpu & \NseisBBugMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas de la familia Cierre e interbloqueo.}
+\caption{Métricas de la Familia 6.}
 \end{table}
 
-\textbf{Interpretación.} Es la única familia en la que el discriminador directo es un recurso físico: el tiempo (milisegundos si cierra frente al segundo completo del \emph{timeout}). La CPU cercana a 0 y la memoria estable ratifican que los procesos afectados están suspendidos esperando una señal, descartando una sobrecarga del procesador. Se confirma un fallo de disponibilidad (\emph{liveness}) y no de consumo de recursos.
-
-% -----------------------------------------------------------------------------
-\subsection{Familia 7 --- Cierre del juego real antes y después de la integración}
+\paragraph{(c) En el juego real.}
 \label{sec:e5}
 
-Las familias anteriores aíslan cada carrera en un programa corto. Esta familia mide lo mismo sobre el \emph{juego completo}, comparando el binario real antes y después de las correcciones de integración.
+\textbf{El problema.} Al incorporar el P1 de tres hilos al juego aparecieron dos cuelgues nuevos. (i) Si el archivo de movimientos tiene más de 100 líneas, la cola queda llena al terminar la partida y el lector se queda dormido esperando un casillero que nunca se libera: P1 no termina y P0 lo espera para siempre. (ii) Si Bomberman se queda sin instrucciones mientras tiene la prioridad más alta, el ejecutor terminaba y P0 esperaba para siempre la señal de fin de turno.
 
-\textbf{El defecto que encontramos.} Al integrar la versión de tres hilos de P1 aparecieron dos cuelgues. (a) Si \cod{bomber\_moves.txt} tiene más de 100 líneas, al terminar la partida \cod{movement\_reader\_thread} queda bloqueado en \cod{sem\_espacios} con la cola llena: P1 nunca termina y P0 espera para siempre en \cod{waitpid}. (b) Si a Bomberman se le acaban las instrucciones mientras conserva la prioridad más alta, \cod{movement\_executor\_thread} terminaba y P0 quedaba esperando un \cod{sem\_turn\_done} que nunca llegaba.
+\textbf{La solución.} (i) Al terminar la partida, el ejecutor libera un casillero para despertar al lector, que ve el fin del juego y sale. (ii) Sin instrucciones, el ejecutor sigue respondiendo en cada turno, sin hacer nada, hasta el fin del juego.
 
-\textbf{Técnica aplicada.} (a) Al ver \cod{game\_over}, el ejecutor hace \cod{sem\_post(sem\_espacios)} para despertar al lector, que comprueba el fin del juego y sale. (b) Sin instrucciones, el ejecutor sigue respondiendo \cod{sem\_turn\_done} en cada turno hasta el fin del juego.
+\textbf{Cómo lo medimos.} A diferencia de (a) y (b), aquí se usa el juego completo. Compilamos la versión anterior a los arreglos y la versión final, y corrimos cada escenario \NsieteN{} veces con un límite de 2~s: (i) un archivo de 300 instrucciones con prioridades 20/30 y (ii) \cod{caso\_sin\_movimientos} con prioridades 40/30.
 
-\textbf{Experimento.} Compilamos el juego completo en el commit \cod{fb8f114} (P1 de tres hilos recién integrado, sin los arreglos) y en \cod{main}, y corrimos cada escenario \NsieteN{} veces con un límite de 2~s: (a) \cod{experimentos/casos/archivo\_largo} (300 líneas, prioridades 20/30) y (b) \cod{tests/caso\_sin\_movimientos} con prioridades 40/30. El script es \cod{experimentos/correr.sh} (en la raíz del repositorio). Métrica: si la partida termina y en cuánto tiempo.
+\textbf{Resultado.} La versión anterior no terminó en ninguna corrida (\NsieteAAntesCierra\,\% y \NsieteBAntesCierra\,\%), con \NsieteAAntesCpu\,\% de CPU: otra vez, procesos dormidos esperando. La versión final terminó siempre, en \NsieteAAhoraTiempo{} y \NsieteBAhoraTiempo~s en promedio. Estas fallas estaban en el código real y los casos originales no las cubrían. $\to$ \emph{Defectos resueltos en el juego real}.
 
-\textbf{Resultado.} El commit anterior termina el \NsieteAAntesCierra\,\% y el \NsieteBAntesCierra\,\% de las corridas: se cuelga siempre, con \NsieteAAntesCpu\,\% de CPU, porque los procesos están dormidos en un \cod{sem\_wait}. La versión de \cod{main} termina el \NsieteAAhoraCierra\,\% y el \NsieteBAhoraCierra\,\% de las corridas, en \NsieteAAhoraTiempo~s y \NsieteBAhoraTiempo~s en promedio. $\to$ \emph{Defectos resueltos en el juego real}.
-
-\begin{figure}[H]
+\begin{figure}[!htbp]
 \centering
-\includegraphics[width=\textwidth]{figuras/f7_ecdf.pdf}
-\caption{Curva de terminación (ECDF) del juego completo: commit \cod{fb8f114} frente a \cod{main}.}
+\includegraphics[width=0.75\textwidth]{figuras/f7_ecdf.pdf}
+\caption{Familia 6c: porcentaje de partidas que ya terminaron en cada instante, versión anterior frente a la versión final.}
 \end{figure}
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering\small
 \begin{tabularx}{\textwidth}{@{}Ycccc@{}}
 \toprule
 \textbf{Variante} & \textbf{¿Termina?} & \textbf{Tiempo medio (s)} & \textbf{CPU medio (\%)} & \textbf{Memoria máx.\ (KB)}\\
 \midrule
-(a) \cod{main} (corregido) & Sí (\NsieteAAhoraCierra\,\%) & \NsieteAAhoraTiempo & \NsieteAAhoraCpu & \NsieteAAhoraMem\\
-(a) \cod{fb8f114} (con falla) & No (\NsieteAAntesCierra\,\%) & \NsieteAAntesTiempo & \NsieteAAntesCpu & \NsieteAAntesMem\\
-(b) \cod{main} (corregido) & Sí (\NsieteBAhoraCierra\,\%) & \NsieteBAhoraTiempo & \NsieteBAhoraCpu & \NsieteBAhoraMem\\
-(b) \cod{fb8f114} (con falla) & No (\NsieteBAntesCierra\,\%) & \NsieteBAntesTiempo & \NsieteBAntesCpu & \NsieteBAntesMem\\
+(i) Versión final (corregido) & Sí (\NsieteAAhoraCierra\,\%) & \NsieteAAhoraTiempo & \NsieteAAhoraCpu & \NsieteAAhoraMem\\
+(i) Versión anterior (con falla) & No (\NsieteAAntesCierra\,\%) & \NsieteAAntesTiempo & \NsieteAAntesCpu & \NsieteAAntesMem\\
+(ii) Versión final (corregido) & Sí (\NsieteBAhoraCierra\,\%) & \NsieteBAhoraTiempo & \NsieteBAhoraCpu & \NsieteBAhoraMem\\
+(ii) Versión anterior (con falla) & No (\NsieteBAntesCierra\,\%) & \NsieteBAntesTiempo & \NsieteBAntesCpu & \NsieteBAntesMem\\
 \bottomrule
 \end{tabularx}
-\caption{Métricas del juego completo antes y después de la integración.}
+\caption{Métricas de la Familia 6c.}
 \end{table}
-
-\textbf{Interpretación.} Igual que en la Familia~6, el discriminador es el tiempo y la CPU cercana a 0 confirma una espera pasiva. La diferencia es que aquí la falla no se construyó quitando una primitiva: estaba en el código real y la detectamos al integrar, con casos que los cinco escenarios originales no cubrían.
 
 % -----------------------------------------------------------------------------
 \subsection{Correspondencia de los casos de prueba con las familias}
 
-La Tabla~\ref{tab:corresp} relaciona los diez escenarios de prueba del proyecto con el recurso compartido, la técnica aplicada y la familia de carreras que ejercitan. La columna ``Estado'' indica si el escenario se ejecuta con el resultado esperado en el código actual.
+La Tabla~\ref{tab:corresp} relaciona los diez escenarios de prueba del proyecto con el recurso compartido, la técnica aplicada y la familia de race conditions que ejercitan. La columna ``Estado'' indica si el escenario se ejecuta con el resultado esperado en el código actual.
 
 \begin{table}[H]
 \centering\scriptsize
 \begin{tabularx}{\textwidth}{@{}cp{2.6cm}p{1.35cm}p{2.0cm}YYc@{}}
 \toprule
-\textbf{N.º} & \textbf{Escenario} & \textbf{Familia} & \textbf{Recurso compartido} & \textbf{Técnica aplicada} & \textbf{Carrera o defecto evitado} & \textbf{Estado}\\
+\textbf{N.º} & \textbf{Escenario} & \textbf{Familia} & \textbf{Recurso compartido} & \textbf{Técnica aplicada} & \textbf{Race condition o defecto evitado} & \textbf{Estado}\\
 \midrule
 1 & \cod{caso\_ejemplo 9 40 30} (ejemplo 8.5) & Fases P3, Buzones & \cod{bombs[]}, buzón de bomba y de prioridad & Posta fuse $\to$ explosion; \cod{bomb\_req\_mtx}; \cod{prio\_mtx} & Bomba fuera de $t+3$; pedido roto & Sí\\
 2 & \cod{caso\_ejemplo 12 30 30} (empate) & Vidas, Fases P3 & \cod{bomber\_lives}, \cod{bombs[]} & Round Robin; P0 único escritor & Vida mal descontada al explotar en T8 & Sí\\
@@ -610,7 +593,7 @@ La Tabla~\ref{tab:corresp} relaciona los diez escenarios de prueba del proyecto 
 6 & \cod{caso\_derrota 20 40 30} & Vidas, Cierre & \cod{bomber\_lives}, \cod{game\_over} & P0 único escritor; liberación ordenada & Vidas negativas; hijo bloqueado & Sí\\
 7 & \cod{caso\_sin\_movimientos 30 30 30} & Cola, Cierre & Cola de P1, \cod{*\_moves\_done} & \cod{sem\_items}/\cod{sem\_espacios}; fin por EOF coordinado por P0 & Instrucción perdida; espera indefinida & Sí\\
 8 & \cod{make test} (parser, 12 pruebas) & Cola & Entrada de P1 y P2 & Línea inválida no entra como turno & Turno gastado por una línea inválida & Sí\\
-9 & \cod{make tsan} (5 casos) & Semáforos, Fases P3, Cola & Datos internos de P0--P3 & Mutex locales y postas & Carrera de datos entre hilos & Sí\\
+9 & \cod{make tsan} (5 casos) & Semáforos, Fases P3, Cola & Datos internos de P0--P3 & Mutex locales y postas & Race condition de datos entre hilos & Sí\\
 10 & \cod{-r} (renderer P4) & Buzones, Cierre & Estado completo, \cod{sem\_render} & Foto con mutex en orden; \cod{sem\_render} en el cierre & Dibujo de un estado a medio cambiar; P4 colgado & Sí\\
 \bottomrule
 \end{tabularx}
@@ -618,44 +601,42 @@ La Tabla~\ref{tab:corresp} relaciona los diez escenarios de prueba del proyecto 
 \label{tab:corresp}
 \end{table}
 
-\textbf{En síntesis:} los diez escenarios se explican a través de seis familias de carreras detectadas durante el desarrollo. Cada una se demostró empíricamente contrastando la versión desprotegida con la protegida, y se resolvió con la primitiva adecuada. Las familias Semáforos y Cierre incluyen subcasos adicionales (equidad, orden en el código real y orden de mutex), lo que totaliza nueve experimentos de sincronización documentados más la validación de extremo a extremo.
+\textbf{En síntesis:} los diez escenarios se explican con las familias de race conditions anteriores: diez experimentos de sincronización más la validación de extremo a extremo.
 
 % =============================================================================
 \section{Conclusiones}
 
 \subsection{Qué se construyó}
 
-Construimos un Bomberman, pero el objetivo real no era el juego, sino aprender a coordinar varios programas que se ejecutan al mismo tiempo sobre una misma información sin que se estorben entre sí. Es como una cocina en la que varios cocineros escriben en una única pizarra de pedidos: si dos escriben a la vez, la pizarra queda ilegible. En computación ese error se llama \emph{condición de carrera} y es el problema central del proyecto.
-
-Repartimos el trabajo en cinco ``empleados'' independientes, llamados procesos: un árbitro (P0) que marca el ritmo del juego y es el único autorizado a modificar los datos importantes (vidas, enemigos vivos, puntaje y fin de la partida); un proceso que mueve a Bomberman (P1); otro que mueve a los cuatro enemigos y detecta los choques (P2); otro que se encarga de las bombas, el fuego y el mapa (P3); y, como extra, uno que dibuja todo en pantalla (P4). Dentro de cada proceso, tareas más pequeñas llamadas hilos trabajan en paralelo. Todos comparten una única ``pizarra'' (la memoria compartida) y, para que nadie la corrompa, usamos dos tipos de ``candados'' de POSIX: los mutex (como un baño con llave: solo entra uno a la vez) y los semáforos (como un semáforo de tránsito que reparte los turnos). La regla primaria es que cada dato tiene un solo dueño que lo escribe; los demás solo dejan pedidos o avisos. Esa sola decisión elimina de raíz la mayoría de los errores de coordinación.
+Construimos un Bomberman cuyo objetivo real no era el juego, sino coordinar varios programas que se ejecutan al mismo tiempo sobre una misma información sin corromperla, es decir, evitar \emph{race conditions}. El trabajo se repartió en cinco procesos: un árbitro (P0) que marca el ritmo y es el único que modifica vidas, enemigos vivos, puntaje y fin de la partida; Bomberman (P1); los cuatro enemigos y la detección de choques (P2); las bombas, el fuego y el mapa (P3); y, como extra, el dibujo en pantalla (P4). Dentro de cada proceso, varios hilos trabajan en paralelo. Todos comparten una única memoria y se coordinan con mutex (solo uno entra a la vez) y semáforos (quién juega y cuándo). La regla central es que cada dato tiene un solo dueño que lo escribe; los demás solo dejan pedidos o avisos.
 
 \subsection{Síntesis técnica}
 
-El proyecto implementó Bomberman como un sistema concurrente real ---cuatro procesos (\cod{fork}) más un renderer opcional, dieciocho hilos (\cod{pthread}), memoria compartida (\cod{mmap}), cinco semáforos entre procesos, siete mutex con \cod{PTHREAD\_PROCESS\_SHARED} y semáforos locales en cada proceso--- y sobre esa base identificó, demostró y resolvió las condiciones de carrera que aparecen al coordinar varios flujos sobre un estado común. El mérito técnico central no fue ``hacer que el juego funcione'', sino definir una autoridad única del estado global: P0. P1, P2 y P3 solo publican hechos (posiciones, pedidos, colisiones, explosiones) y P0 decide sus consecuencias. Las carreras que quedan se cierran con la primitiva adecuada a cada recurso: mutex para las estructuras de varios campos, barreras y postas de semáforos para el orden, un semáforo por receptor para el reparto justo, un buffer acotado con dos semáforos para la cola, un orden global de mutex y una liberación ordenada para evitar el interbloqueo.
+El proyecto implementó Bomberman como un sistema concurrente real ---cuatro procesos (\cod{fork}) más un renderer opcional, dieciocho hilos (\cod{pthread}), memoria compartida (\cod{mmap}), cinco semáforos entre procesos, siete mutex con \cod{PTHREAD\_PROCESS\_SHARED} y semáforos locales en cada proceso--- y sobre esa base identificó, demostró y resolvió las race conditions que aparecen al coordinar varios flujos sobre un estado común. El mérito técnico central no fue ``hacer que el juego funcione'', sino definir una autoridad única del estado global: P0. P1, P2 y P3 solo publican hechos (posiciones, pedidos, colisiones, explosiones) y P0 decide sus consecuencias. Las race conditions que quedan se cierran con la primitiva adecuada a cada recurso: mutex para las estructuras de varios campos, barreras y postas de semáforos para el orden, un semáforo por receptor para el reparto justo, un buffer acotado con dos semáforos para la cola, un orden global de mutex y una liberación ordenada para evitar el interbloqueo.
 
-Sobre la experimentación, el principio fue uno solo: una condición de carrera se delata por el no determinismo. La versión sin la primitiva entrega resultados distintos en cada corrida; la corregida, siempre el mismo resultado correcto (desviación estándar cero). El juego completo cumple ese criterio: todas las corridas de cada caso de prueba producen exactamente la misma salida. Un aprendizaje transversal fue elegir el parámetro correcto: en casi todas las familias el discriminador es la corrección del dato y no el tiempo ni la memoria; solo en el interbloqueo la evidencia es el tiempo, porque el proceso defectuoso nunca termina y consume casi 0\,\% de CPU al quedar dormido.
+Sobre la experimentación, el principio fue uno solo: una race condition se delata por el no determinismo. La versión sin la primitiva entrega resultados distintos en cada corrida; la corregida, siempre el mismo resultado correcto (desviación estándar cero). El juego completo cumple ese criterio: todas las corridas de cada caso de prueba producen exactamente la misma salida. En casi todas las familias el discriminador fue la corrección del dato; solo en los cuelgues fue el tiempo.
 
-No todas las carreras fueron igual de graves. La cola de P1 sin \cod{sem\_espacios} pierde la gran mayoría de las instrucciones y los dos interbloqueos cuelgan el 100\,\% de las corridas: son fallas totales. El contador de vidas, las fases de P3 y los buzones producen datos incorrectos sin que el programa se caiga, el tipo de error más difícil de detectar. El reparto con un semáforo compartido es el más leve. La lección más fina vino de las carreras de \emph{orden} (barrera de P2, posta de P3 y rastreador antes del detector): ahí todos los datos están protegidos por mutex, ThreadSanitizer no reporta nada, y aun así el resultado puede ser incorrecto. De hecho, la última carrera que encontramos (el rastreador y el detector de P2 despertados a la vez, en el PR~\#21) es de este tipo: pasó la validación de los casos de prueba y ThreadSanitizer, y solo apareció al diseñar un caso que la ejercitara, donde perdía el choque en el \NtrackRealPierde\,\% de las corridas; ya está corregida en \cod{main}. Un mutex protege el dato; solo un semáforo bien ubicado protege el orden.
+No todas las race conditions fueron igual de graves. La cola de P1 sin \cod{sem\_espacios} pierde la gran mayoría de las instrucciones y los dos interbloqueos cuelgan el 100\,\% de las corridas: son fallas totales. El contador de vidas, las fases de P3 y los buzones producen datos incorrectos sin que el programa se caiga, el tipo de error más difícil de detectar. El reparto con un semáforo compartido es el más leve. La lección más fina vino de las race conditions de \emph{orden} (barrera de P2, posta de P3 y rastreador antes del detector): ahí todos los datos están protegidos por mutex, ThreadSanitizer no reporta nada, y aun así el resultado puede ser incorrecto. De hecho, la última race condition que encontramos (el rastreador y el detector de P2 despertados a la vez) es de este tipo: pasó la validación de los casos de prueba y ThreadSanitizer, y solo apareció al diseñar un caso que la ejercitara, donde perdía el choque en el \NtrackRealPierde\,\% de las corridas; ya está corregida. Un mutex protege el dato; solo un semáforo bien ubicado protege el orden.
 
-Es importante aclarar el alcance del método: las variantes con carrera se construyeron deliberadamente quitando la primitiva con una bandera de compilación, para observar la falla y contrastarla con la versión protegida; es la forma estándar de demostrar que una primitiva es necesaria. Reconocemos también su límite: cientos de corridas dan alta confianza, pero no cubren todos los entrelazados posibles del planificador, por lo que reforzamos cada carrera con amplificación de la ventana crítica para volverla reproducible.
+Es importante aclarar el alcance del método: las variantes con race condition se construyeron deliberadamente quitando la primitiva con una bandera de compilación, para observar la falla y contrastarla con la versión protegida; es la forma estándar de demostrar que una primitiva es necesaria. Reconocemos también su límite: cientos de corridas dan alta confianza, pero no cubren todos los entrelazados posibles del planificador, por lo que reforzamos cada race condition con amplificación de la ventana crítica para volverla reproducible.
 
 \subsection{Correcciones aplicadas durante la integración}
 
-Los experimentos de las familias 2c y 4 y la revisión del enunciado nos llevaron a corregir el código antes de la entrega. Todas estas correcciones están en \cod{main}:
+Los experimentos de las familias 2c y 4 y la revisión del enunciado nos llevaron a corregir el código antes de la entrega. Todas están en la versión final:
 
 \begin{itemize}
-  \item \textbf{Rastreador antes del detector en P2} (PR~\#26). El controlador despierta a \cod{bomber\_tracker\_thread}, espera \cod{sem\_tracker\_done} y recién entonces despierta a \cod{collision\_thread} (Familia~2c).
-  \item \textbf{Mutex compartidos del lado del escritor} (PR~\#27). P1 escribe \cod{bomber\_x/y} bajo \cod{bomber\_mtx}, el buzón de bomba bajo \cod{bomb\_req\_mtx} y su pedido de prioridad bajo \cod{prio\_mtx}; P2 mueve a los enemigos sobre posiciones internas y \cod{enemy\_publisher\_thread} las copia a \cod{enemy\_x/y} bajo \cod{enemy\_mtx}. Así la corrección no depende solo del \emph{lock-step} (Familia~4).
-  \item \textbf{P1 con tres hilos integrado} (PRs~\#22 y \#26), con dos arreglos de cierre: el ejecutor ya no termina cuando se acaba el archivo (sigue respondiendo \cod{sem\_turn\_done} en los turnos siguientes) y el lector no queda bloqueado en \cod{sem\_espacios} cuando la partida termina con la cola llena. La Sección~\ref{sec:e5} mide el efecto.
-  \item \textbf{Fases de P3 según el enunciado} (PR~\#27): la limpieza del fuego la hace \cod{explosion\_thread} al inicio del turno, antes de avanzar los temporizadores.
-  \item \textbf{Desempate de \cod{SET\_PRIORITY} en P2} (PR~\#27): si varios enemigos piden prioridad en el mismo turno, gana el de mayor número de enemigo.
+  \item \textbf{Rastreador antes del detector en P2.} El controlador despierta a \cod{bomber\_tracker\_thread}, espera \cod{sem\_tracker\_done} y recién entonces despierta a \cod{collision\_thread} (Familia~2c).
+  \item \textbf{Mutex compartidos del lado del escritor.} P1 escribe \cod{bomber\_x/y} bajo \cod{bomber\_mtx}, el buzón de bomba bajo \cod{bomb\_req\_mtx} y su pedido de prioridad bajo \cod{prio\_mtx}; P2 mueve a los enemigos sobre posiciones internas y \cod{enemy\_publisher\_thread} las copia a \cod{enemy\_x/y} bajo \cod{enemy\_mtx}. Así la corrección no depende solo del \emph{lock-step} (Familia~4).
+  \item \textbf{P1 con tres hilos}, con dos arreglos de cierre: el ejecutor ya no termina cuando se acaba el archivo (sigue respondiendo \cod{sem\_turn\_done} en los turnos siguientes) y el lector no queda bloqueado en \cod{sem\_espacios} cuando la partida termina con la cola llena. La Familia~6c mide el efecto.
+  \item \textbf{Fases de P3 según el enunciado}: la limpieza del fuego la hace \cod{explosion\_thread} al inicio del turno, antes de avanzar los temporizadores.
+  \item \textbf{Desempate de \cod{SET\_PRIORITY} en P2}: si varios enemigos piden prioridad en el mismo turno, gana el de mayor número de enemigo.
 \end{itemize}
 
 \subsection{Recomendaciones}
 
 \begin{itemize}
-  \item \textbf{Verificación entre procesos.} ThreadSanitizer no observa la memoria compartida entre procesos; para esos accesos recomendamos mantener los experimentos de este informe como pruebas de regresión (\cod{run.sh} y \cod{experimentos/correr.sh}).
-  \item \textbf{Casos que ejerciten el orden.} Las carreras de orden no se ven en los casos de prueba normales (Familia~2c). Conviene diseñar un caso mínimo por cada posta de semáforos, como \cod{caso\_tracker}.
+  \item \textbf{Verificación entre procesos.} ThreadSanitizer no observa la memoria compartida entre procesos; para esos accesos recomendamos mantener los experimentos de este informe como pruebas de regresión.
+  \item \textbf{Casos que ejerciten el orden.} Las race conditions de orden no se ven en los casos de prueba normales (Familia~2c). Conviene diseñar un caso mínimo por cada posta de semáforos, como \cod{caso\_tracker}.
 \end{itemize}
 
 % =============================================================================

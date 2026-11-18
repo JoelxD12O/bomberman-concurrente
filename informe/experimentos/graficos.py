@@ -284,68 +284,159 @@ def figuras_esquematicas():
 # Figura del ciclo de un tick (metodologia)
 # ---------------------------------------------------------------------------
 def figura_tick():
-    carriles = ["Reloj (global_tick)", "P0 · tick_thread", "P0 · scheduler_thread",
-                "P0 · signal_thread", "P0 · event_thread", "P1 · executor + publisher",
-                "P2 · enemy_thread ×4 + tracker", "P2 · collision_thread",
-                "P3 · fuse_thread", "P3 · explosion_thread"]
-    col = {c: P0C for c in carriles}
-    col["P1 · executor + publisher"] = P1C
-    col["P2 · enemy_thread ×4 + tracker"] = P2C
-    col["P2 · collision_thread"] = P2C
-    col["P3 · fuse_thread"] = P3C
-    col["P3 · explosion_thread"] = P3C
-    col["Reloj (global_tick)"] = INK
-    pul = []
-    for base, turno in ((0, "P1"), (6, "P2")):
-        pul += [("Reloj (global_tick)", base + 0.2, base + 3.1, "", INK),
-                ("P0 · tick_thread", base + 0.2, base + 0.6, "tick++", P0C),
-                ("P0 · scheduler_thread", base + 0.6, base + 1.0, "elige", P0C),
-                ("P0 · signal_thread", base + 1.0, base + 1.2, "", P0C),
-                ("P0 · signal_thread", base + 3.0, base + 3.2, "", P0C),
-                ("P3 · fuse_thread", base + 3.3, base + 3.8, "timer−1", P3C),
-                ("P3 · explosion_thread", base + 3.9, base + 4.5, "explota", P3C),
-                ("P0 · event_thread", base + 4.7, base + 5.5, "vidas, fin", P0C)]
-        if turno == "P1":
-            pul.append(("P1 · executor + publisher", base + 1.3, base + 2.8, "1 instrucción", P1C))
-        else:
-            pul.append(("P2 · enemy_thread ×4 + tracker", base + 1.3, base + 2.2, "en paralelo", P2C))
-            pul.append(("P2 · collision_thread", base + 2.3, base + 2.8, "choque", P2C))
+    """Dos ticks (P1 y luego P2) contados igual que en la Sección 3.2: Paso 1 a Paso 4."""
+    SEM = "#2f3fb0"
+    P4C = "#6250d6"
+    carriles = [
+        ("P0", "Hilo del tick"), ("P0", "Hilo planificador"), ("P0", "Hilo de señales"), ("P0", "Hilo de eventos"),
+        ("P1", "Lector (productor)"), ("P1", "Ejecutor (consumidor)"), ("P1", "Publicador"),
+        ("P2", "Controlador"), ("P2", "Enemigos ×4 (en paralelo)"), ("P2", "Rastreador"),
+        ("P2", "Detector de colisión"), ("P2", "Publicador "),
+        ("P3", "Controlador de bombas"), ("P3", "Temporizador"), ("P3", "Explosión"),
+        ("P4", "Render (solo con -r)"),
+    ]
+    color_proc = {"P0": P0C, "P1": P1C, "P2": P2C, "P3": P3C, "P4": P4C}
+    nombres = [c[1] for c in carriles]
     n = len(carriles)
-    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+
+    def y(nombre):
+        return n - 1 - nombres.index(nombre)
+
+    H = 0.5
+    barras = []      # (carril, t0, t1, texto)
+    flechas = []     # (carril_origen, t, carril_destino, t_destino)
+    pasos = []       # (t0, t1, etiqueta)
+
+    def tick(b, turno):
+        # Paso 1: reloj y decision de turno
+        barras.append(("Hilo del tick", b + 0.15, b + 0.55, "reloj +1"))
+        barras.append(("Hilo planificador", b + 0.65, b + 1.15, "elige turno"))
+        flechas.append(("Hilo del tick", b + 0.55, "Hilo planificador", b + 0.65))
+        pasos.append((b, b + 1.25, "Paso 1\ninicio"))
+        # Paso 2: fase de accion
+        s0 = b + 1.25
+        barras.append(("Hilo de señales", s0, s0 + 0.15, ""))
+        flechas.append(("Hilo planificador", b + 1.15, "Hilo de señales", s0))
+        if turno == "P1":
+            barras.append(("Ejecutor (consumidor)", s0 + 0.3, s0 + 1.1, "saca 1 instrucción"))
+            barras.append(("Publicador", s0 + 1.2, s0 + 1.8, "publica posición"))
+            flechas.append(("Hilo de señales", s0 + 0.15, "Ejecutor (consumidor)", s0 + 0.3))
+            flechas.append(("Ejecutor (consumidor)", s0 + 1.1, "Publicador", s0 + 1.2))
+            fin_turno, desde = s0 + 1.95, ("Publicador", s0 + 1.8)
+        else:
+            barras.append(("Controlador", s0 + 0.3, s0 + 0.55, "despierta"))
+            barras.append(("Enemigos ×4 (en paralelo)", s0 + 0.6, s0 + 1.3, "cada uno 1 mov."))
+            barras.append(("Rastreador", s0 + 1.45, s0 + 1.85, "copia pos."))
+            barras.append(("Detector de colisión", s0 + 1.95, s0 + 2.35, "¿choque?"))
+            barras.append(("Publicador ", s0 + 2.45, s0 + 2.85, "publica"))
+            flechas.append(("Hilo de señales", s0 + 0.15, "Controlador", s0 + 0.3))
+            flechas.append(("Controlador", s0 + 0.55, "Enemigos ×4 (en paralelo)", s0 + 0.6))
+            flechas.append(("Enemigos ×4 (en paralelo)", s0 + 1.3, "Rastreador", s0 + 1.45))
+            flechas.append(("Rastreador", s0 + 1.85, "Detector de colisión", s0 + 1.95))
+            flechas.append(("Detector de colisión", s0 + 2.35, "Publicador ", s0 + 2.45))
+            barreras.append(s0 + 1.37)
+            fin_turno, desde = s0 + 3.0, ("Publicador ", s0 + 2.85)
+        barras.append(("Hilo de señales", fin_turno, fin_turno + 0.15, ""))
+        flechas.append((desde[0], desde[1], "Hilo de señales", fin_turno))
+        pasos.append((s0, fin_turno + 0.1, f"Paso 2\nturno de {turno}"))
+        # Paso 3: bombas (P3 juega siempre)
+        q0 = fin_turno + 0.15
+        barras.append(("Controlador de bombas", q0 + 0.15, q0 + 2.05, ""))
+        barras.append(("Explosión", q0 + 0.25, q0 + 0.6, "limpia"))
+        barras.append(("Temporizador", q0 + 0.7, q0 + 1.1, "timer −1"))
+        barras.append(("Explosión", q0 + 1.2, q0 + 1.65, "explota"))
+        flechas.append(("Hilo de señales", q0, "Controlador de bombas", q0 + 0.15))
+        flechas.append(("Controlador de bombas", q0 + 2.05, "Hilo de señales", q0 + 2.2))
+        barras.append(("Hilo de señales", q0 + 2.2, q0 + 2.35, ""))
+        pasos.append((q0 - 0.05, q0 + 2.4, "Paso 3\nbombas"))
+        # Paso 4: eventos, render y fin
+        e0 = q0 + 2.45
+        barras.append(("Hilo de eventos", e0 + 0.05, e0 + 0.75, "eventos"))
+        barras.append(("Render (solo con -r)", e0 + 0.85, e0 + 1.35, "dibuja"))
+        barras.append(("Hilo de eventos", e0 + 1.45, e0 + 1.75, "¿fin?"))
+        flechas.append(("Hilo de señales", q0 + 2.35, "Hilo de eventos", e0 + 0.05))
+        flechas.append(("Hilo de eventos", e0 + 0.75, "Render (solo con -r)", e0 + 0.85))
+        flechas.append(("Render (solo con -r)", e0 + 1.35, "Hilo de eventos", e0 + 1.45))
+        pasos.append((e0, e0 + 1.85, "Paso 4\ncierre"))
+        return e0 + 1.85
+
+    barreras = []
+    fin1 = tick(0.0, "P1")
+    b2 = fin1 + 0.35
+    fin2 = tick(b2, "P2")
+
+    fig, ax = plt.subplots(figsize=(7.4, 6.3))
     ax.grid(False)
-    for s in ("left", "top", "right"):
-        ax.spines[s].set_visible(False)
-    ax.set_xlim(-0.2, 12)
-    ax.set_ylim(-0.6, n + 0.4)
+    for sp in ("left", "top", "right", "bottom"):
+        ax.spines[sp].set_visible(False)
+    ax.set_xlim(-0.1, fin2 + 0.1)
+    ax.set_ylim(-0.7, n + 1.15)
+
+    # franjas de los pasos
+    for i, (t0, t1, etq) in enumerate(pasos):
+        ax.add_patch(Rectangle((t0, -0.35), t1 - t0, n + 0.25, color="#eef1f8" if i % 2 == 0 else "#f8f8f6",
+                               lw=0, zorder=0))
+        ax.text((t0 + t1) / 2, n + 0.0, etq, ha="center", va="bottom", fontsize=6.8, color=INK,
+                fontweight="bold", linespacing=1.15)
+    # carriles
+    for i, (proc, nom) in enumerate(carriles):
+        yy = n - 1 - i
+        ax.plot([-0.1, fin2 + 0.1], [yy, yy], color=GRID, lw=0.8, zorder=1)
     ax.set_yticks([n - 1 - i for i in range(n)])
-    ax.set_yticklabels(carriles, fontsize=8)
-    ax.tick_params(axis="y", length=0)
-    for i in range(n):
-        ax.plot([-0.2, 12], [n - 1 - i] * 2, color=GRID, lw=1)
-    for (c, t0, t1, txt, color) in pul:
-        y = n - 1 - carriles.index(c)
-        h = 0.45
-        ax.plot([t0, t0, t1, t1], [y, y + h, y + h, y], color=color, lw=1.8)
-        ax.add_patch(Rectangle((t0, y), t1 - t0, h, color=color, alpha=0.12, lw=0))
+    ax.set_yticklabels([c[1].strip() for c in carriles], fontsize=7.6)
+    ax.tick_params(axis="y", length=0, pad=4)
+    for lab, (proc, _) in zip(ax.get_yticklabels(), carriles):
+        lab.set_color(color_proc[proc])
+    # llaves de proceso a la izquierda
+    grupos = {}
+    for i, (proc, _) in enumerate(carriles):
+        grupos.setdefault(proc, []).append(n - 1 - i)
+    titulos = {"P0": "P0\nárbitro", "P1": "P1\nBomberman", "P2": "P2\nenemigos", "P3": "P3\nbombas", "P4": "P4"}
+    for proc, ys in grupos.items():
+        y0, y1 = min(ys) - 0.1, max(ys) + 0.6
+        tr = ax.get_yaxis_transform()
+        ax.plot([-0.255, -0.255], [y0, y1], color=color_proc[proc], lw=2.2, clip_on=False,
+                solid_capstyle="butt", transform=tr)
+        ax.text(-0.265, (y0 + y1) / 2, titulos[proc], ha="right", va="center", fontsize=7.6,
+                color=color_proc[proc], fontweight="bold", clip_on=False, linespacing=1.1, transform=tr)
+    # barras
+    for (c, t0, t1, txt) in barras:
+        yy = y(c)
+        proc = carriles[nombres.index(c)][0]
+        col = color_proc[proc]
+        ax.plot([t0, t0, t1, t1], [yy, yy + H, yy + H, yy], color=col, lw=1.6, zorder=3)
+        ax.add_patch(Rectangle((t0, yy), t1 - t0, H, color=col, alpha=0.15, lw=0, zorder=2))
         if txt:
-            ax.text((t0 + t1) / 2, y + h + 0.06, txt, ha="center", va="bottom",
-                    fontsize=6.5, color=INK2)
-    marcas = [(0.2, "①"), (1.3, "②"), (3.3, "④"), (4.7, "⑤"),
-              (6.2, "①"), (7.3, "②"), (8.2, "③"), (9.3, "④"), (10.7, "⑤")]
-    for t, m in marcas:
-        ax.axvline(t, color=MUTED, ls=(0, (2, 3)), lw=0.7, zorder=0)
-        ax.text(t, n - 0.1, m, ha="center", va="bottom", fontsize=10, color=INK)
-    ax.set_xticks([0.2, 6.2])
-    ax.set_xticklabels(["tick 1 — turno de P1 (P1 = P2 = 30)",
-                        "tick 2 — turno de P2 (Round Robin)"], fontsize=8)
+            ax.text((t0 + t1) / 2, yy + H + 0.05, txt, ha="center", va="bottom", fontsize=6.1, color=INK2, zorder=4)
+    # flechas de semaforo (quien despierta a quien)
+    for (c0, t0, c1, t1) in flechas:
+        ax.annotate("", xy=(t1, y(c1) + H / 2), xytext=(t0, y(c0) + H / 2),
+                    arrowprops=dict(arrowstyle="-|>", color=SEM, lw=0.7, alpha=0.75, shrinkA=0, shrinkB=0,
+                                    mutation_scale=7), zorder=5)
+    # barrera de P2
+    for t in barreras:
+        y0, y1 = y("Publicador ") - 0.1, y("Enemigos ×4 (en paralelo)") + H + 0.1
+        ax.plot([t, t], [y0, y1], color=P2C, lw=1.2, ls=(0, (2, 1.5)), zorder=4)
+        ax.text(t, y0 - 0.05, "barrera", fontsize=6.1, color=P2C, fontweight="bold", ha="center", va="top")
+    # el lector de P1 llena la cola al inicio y solo vuelve cuando hay espacio
+    ax.plot([0.15, 0.15, 1.05, 1.05], [y("Lector (productor)")] + [y("Lector (productor)") + H] * 2 +
+            [y("Lector (productor)")], color=P1C, lw=1.6, zorder=3)
+    ax.add_patch(Rectangle((0.15, y("Lector (productor)")), 0.9, H, color=P1C, alpha=0.15, lw=0, zorder=2))
+    ax.text(0.6, y("Lector (productor)") + H + 0.05, "llena la cola", ha="center", va="bottom", fontsize=6.1, color=INK2)
+    ax.text(1.15, y("Lector (productor)") + 0.08, "→ duerme hasta que haya espacio", ha="left", va="bottom",
+            fontsize=6.1, color=INK2, style="italic")
+
+    ax.set_xticks([pasos[0][0] + 0.05, pasos[4][0] + 0.05])
+    ax.set_xticklabels(["tick 1: le toca a P1 (prioridades iguales)", "tick 2: le toca a P2 (alternancia)"],
+                       fontsize=7.8, ha="left")
     ax.tick_params(axis="x", length=0)
-    ax.set_title("Ciclo de dos ticks: posta de semáforos de P0, fase de acción y fase de bombas",
-                 loc="left", pad=16)
-    fig.text(0.02, -0.06,
-             "① tick_thread incrementa el reloj   ② signal_thread hace sem_post al proceso elegido (P1 o P2) y espera sem_turn_done\n"
-             "③ barrera de P2: collision_thread solo corre tras 4 sem_enemy_done   ④ P3 juega en todos los ticks (fuse → explosion)\n"
-             "⑤ event_thread: P0, único escritor, aplica eventos, puntaje y fin del juego. Línea alta = hilo trabajando; baja = bloqueado en sem_wait.",
-             fontsize=7.5, color=INK2, linespacing=1.4)
+    ax.set_title("Un tick paso a paso: dos ticks seguidos (P1 y luego P2)", loc="left", pad=8, x=-0.27)
+    fig.text(0.02, 0.0,
+             "Barra alta = el hilo está trabajando; línea baja = el hilo duerme en sem_wait. "
+             "Flecha azul = semáforo: el hilo de la izquierda despierta al de la derecha (sem_post).\n"
+             "Paso 2: P0 despierta al elegido (sem_bomber_turn o sem_enemy_turn) y espera sem_turn_done. "
+             "En P2, nadie compara posiciones antes de la barrera (sem_enemy_done).",
+             fontsize=6.9, color=INK2, linespacing=1.45)
     fig.savefig(FIG / "tick.pdf")
     plt.close(fig)
 
@@ -354,49 +445,96 @@ def figura_tick():
 # Turnos reales por tick (logs del juego)
 # ---------------------------------------------------------------------------
 def figura_turnos():
+    # (titulo, ticks, P1, P2, P3, nota, bomba=(pide, explota), cambio de prioridad, tick con vida perdida)
     escenarios = [
         ("A · prioridades 20 / 30  (./bomberman tests/caso_ejemplo 8 20 30)",
-         8, {}, {t: "" for t in range(1, 9)}, {}, "P2 siempre: inanición de P1"),
+         8, {}, {t: "" for t in range(1, 9)}, {},
+         "P2 tiene más prioridad: juega siempre y P1 nunca recibe turno (inanición)",
+         None, None, None),
         ("B · prioridades 40 / 30  (ejemplo 8.5: ./bomberman tests/caso_ejemplo 9 40 30)",
          9, {1: "RIGHT", 2: "RIGHT", 3: "BOMB", 4: "LEFT", 5: "LEFT", 6: "DOWN", 7: "SET 25"},
          {8: "", 9: ""}, {3: "registra", 4: "3→2", 5: "2→1", 6: "EXPLOTA", 7: "limpia"},
-         "P1 pide 25 en t7; P0 lo aplica al inicio de t8"),
+         "P1 tiene más prioridad hasta que pide bajarla a 25",
+         (3, 6), 7.5, None),
         ("C · prioridades 30 / 30  (./bomberman tests/caso_ejemplo 12 30 30)",
          12, {1: "RIGHT", 3: "RIGHT", 5: "BOMB", 7: "LEFT", 9: "LEFT", 11: "DOWN"},
          {2: "", 4: "", 6: "", 8: "", 10: "", 12: ""},
          {5: "registra", 6: "3→2", 7: "2→1", 8: "EXPLOTA", 9: "limpia"},
-         "Round Robin; la bomba explota en t8 con Bomberman en (2,1): pierde 1 vida"),
+         "Empate: se alternan (Round Robin), empezando por P1",
+         (5, 8), None, 8),
     ]
-    fig, axs = plt.subplots(3, 1, figsize=(7.2, 5.6),
-                            gridspec_kw={"height_ratios": [1, 1, 1], "hspace": 0.95})
-    for ax, (tit, n, p1, p2, p3, nota) in zip(axs, escenarios):
+    VIDA = "#c62828"
+    fig, axs = plt.subplots(3, 1, figsize=(7.2, 7.4),
+                            gridspec_kw={"height_ratios": [1, 1, 1], "hspace": 1.05})
+    for ax, (tit, n, p1, p2, p3, nota, bomba, cambio, vida) in zip(axs, escenarios):
         ax.grid(False)
-        for s in ax.spines.values():
-            s.set_visible(False)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
         ax.set_xlim(0.5, 12.5)
         ax.set_ylim(-0.5, 2.5)
         filas = [("P1 Bomberman", p1, P1C), ("P2 enemigos", p2, P2C), ("P3 bombas", p3, P3C)]
         for j, (nom, d, c) in enumerate(filas):
             y = 2 - j
             for t in range(1, n + 1):
-                activo = t in d or (j == 2)
-                ax.add_patch(Rectangle((t - 0.47, y - 0.4), 0.94, 0.8,
-                                       fc=c if activo else "#f1f0ec",
-                                       alpha=0.85 if (activo and (j < 2 or t in d)) else (0.35 if activo else 1),
-                                       ec=SURF, lw=2))
+                if t in d:                      # tuvo el turno / hubo trabajo con bombas
+                    fc, al = c, 0.85
+                elif j == 2:                    # P3 corre igual, pero sin bombas
+                    fc, al = c, 0.3
+                else:                           # sin turno
+                    fc, al = "#f1f0ec", 1
+                ax.add_patch(Rectangle((t - 0.47, y - 0.4), 0.94, 0.8, fc=fc, alpha=al, ec=SURF, lw=2))
                 if t in d and d[t]:
                     ax.text(t, y, d[t], ha="center", va="center", fontsize=6.5,
                             color="white" if j < 2 else INK, fontweight="bold")
+        # A: P1 nunca juega
+        if not p1:
+            ax.text((n + 1) / 2, 2, "sin turno en ningún tick", ha="center", va="center",
+                    fontsize=7, color=MUTED, style="italic")
+        # flecha de la bomba: P1 la pide -> P3 la registra en el mismo tick
+        if bomba:
+            t0, t1 = bomba
+            ax.annotate("", xy=(t0, 0.42), xytext=(t0, 1.58),
+                        arrowprops=dict(arrowstyle="-|>", color=INK2, lw=0.9, mutation_scale=7,
+                                        shrinkA=0, shrinkB=0, connectionstyle="arc3,rad=-0.35"))
+            # llave t+3 bajo los ticks
+            yb = -1.05
+            ax.plot([t0, t0, t1, t1], [yb + 0.12, yb, yb, yb + 0.12], color=P3C, lw=1.3, clip_on=False)
+            ax.text((t0 + t1) / 2, yb - 0.08, f"pedida en T{t0} → explota en T{t1} (t+3)",
+                    ha="center", va="top", fontsize=6.8, color=INK, clip_on=False)
+        # B: cambio de prioridad aplicado por P0 al inicio del tick siguiente
+        if cambio:
+            ax.plot([cambio, cambio], [-0.5, 2.5], color=INK, lw=1.1, ls=(0, (3, 2)), clip_on=False)
+            ax.annotate("P1 pidió prioridad 25 en T7;\nP0 la aplica al inicio de T8\n→ desde ahí gana P2 (30 > 25)",
+                        xy=(cambio, 1.0), xytext=(9.75, 1.0), ha="left", va="center",
+                        fontsize=6.8, color=INK, linespacing=1.2,
+                        arrowprops=dict(arrowstyle="-|>", color=INK, lw=0.8, mutation_scale=7, shrinkA=2,
+                                        shrinkB=0))
+        # C: vida perdida
+        if vida:
+            ax.add_patch(Rectangle((vida - 0.47, -0.4), 0.94, 0.8, fc="none", ec=VIDA, lw=1.6, zorder=5))
+            ax.text(vida + 0.35, -1.05, "← alcanza a Bomberman en (2,1): P0 le quita 1 vida",
+                    ha="left", va="center", fontsize=6.8, color=VIDA, fontweight="bold", clip_on=False)
         ax.set_yticks([2, 1, 0])
         ax.set_yticklabels([f[0] for f in filas], fontsize=8)
         ax.set_xticks(range(1, n + 1))
         ax.set_xticklabels([f"T{t}" for t in range(1, n + 1)], fontsize=7.5)
         ax.tick_params(length=0)
-        ax.set_title(tit, loc="left", fontsize=8.5, pad=14)
-        ax.text(12.5, 2.62, nota, ha="right", va="bottom", fontsize=7.5, color=INK2,
-                style="italic")
-    fig.text(0.02, 0.0, "Celda de color = el proceso tuvo el turno en ese tick (P0 participa en todos). "
-             "Datos tomados de la salida real del programa.", fontsize=7.5, color=INK2)
+        ax.set_title(tit, loc="left", fontsize=8.5, pad=16)
+        ax.text(0.5, 2.62, nota, ha="left", va="bottom", fontsize=7.5, color=INK2, style="italic")
+    # leyenda
+    fig.subplots_adjust(bottom=0.17, top=0.95)
+    lx, ly = 0.03, 0.045
+    items = [(P1C, 0.85, "P1 / P2 con color: ese proceso tuvo el turno"),
+             ("#f1f0ec", 1, "gris: no tuvo turno"),
+             (P3C, 0.3, "P3 claro: corre, pero no hay bombas"),
+             (P3C, 0.85, "P3 fuerte: trabaja con una bomba")]
+    pos = [(lx, ly + 0.025), (lx + 0.5, ly + 0.025), (lx, ly), (lx + 0.5, ly)]
+    for (c, al, txt), (x0, y0) in zip(items, pos):
+        fig.patches.append(Rectangle((x0, y0), 0.022, 0.016, fc=c, alpha=al, ec="none",
+                                     transform=fig.transFigure, figure=fig))
+        fig.text(x0 + 0.03, y0 + 0.008, txt, fontsize=7.3, color=INK2, va="center")
+    fig.text(lx, ly - 0.022, "P0 participa en todos los ticks (decide el turno al inicio). "
+             "Datos tomados de la salida real del programa.", fontsize=7.2, color=MUTED)
     fig.savefig(FIG / "turnos.pdf")
     plt.close(fig)
 
@@ -625,15 +763,15 @@ def juego():
         NUM["JuegoTexto"] = (
             f"\\textbf{{Resultado.}} En los {len(filas)} escenarios, las {fmt(total)} corridas "
             "produjeron exactamente una salida distinta por caso: el mismo orden de turnos, las mismas "
-            "explosiones en los mismos ticks y el mismo resultado final. En estos escenarios ninguna carrera "
-            "altera el resultado. Esto no prueba que no existan: la Familia~2c muestra una carrera real que "
+            "explosiones en los mismos ticks y el mismo resultado final. En estos escenarios ninguna race condition "
+            "altera el resultado. Esto no prueba que no existan: la Familia~2c muestra una race condition real que "
             "estos casos no ejercitan.")
     else:
         det = "; ".join(f"\\texttt{{{'\\_'.join(m[0].split('_')[:-3])}}}: {m[2]} salidas distintas" for m in malos)
         NUM["JuegoTexto"] = (
             f"\\textbf{{Resultado.}} De los {len(filas)} escenarios, {len(filas) - len(malos)} produjeron una "
             f"única salida en todas sus corridas; los demás mostraron variación ({det}), lo que indica una "
-            "carrera residual en el sistema completo.")
+            "race condition residual en el sistema completo.")
 
 
 def tracker():
@@ -653,16 +791,13 @@ def tracker():
     perdidas_real = sum(1 for x in por["real"] if x != 2)
     NUM["trackRealPierde"] = fmt(100 - ok(por["real"]), 1)
     NUM["TrackerTexto"] = (
-        f"La partida correcta termina con 2 vidas. Con el código del PR~\\#21 tal cual, sin ninguna amplificación, "
-        f"\\textbf{{el {fmt(100 - ok(por['real']), 1)}\\,\\% de las corridas ({perdidas_real} de {fmt(n)}) perdió el "
-        f"choque}} y terminó con 3 vidas: la carrera ocurría en el código de P2 del PR~\\#21. Con el retardo de 2~ms el detector "
-        f"compara casi siempre contra la copia anterior, y solo el {fmt(ok(por['real+amp']), 1)}\\,\\% de las corridas "
-        f"detecta el choque. Con la corrección (y el mismo retardo), lo detecta el "
-        f"{fmt(ok(por['corregido']), 1)}\\,\\%. En los casos de prueba del repositorio la carrera no se ve porque, en "
-        "\\cod{caso\\_demo}, Bomberman lleva varios turnos quieto cuando lo alcanza el enemigo: la copia vieja y la nueva "
-        "coinciden. Por eso la validación de la Tabla~\\ref{tab:juego} no podía detectarla. La corrección es la que hoy usa \\cod{main} (PR~\\#26).")
+        f"Lo correcto es terminar con 2 vidas. La versión anterior de P2, sin ninguna amplificación, "
+        f"\\textbf{{perdió el choque en el {fmt(100 - ok(por['real']), 1)}\\,\\% de las corridas}} ({perdidas_real} de {fmt(n)}). "
+        f"Con el retardo, solo el {fmt(ok(por['real+amp']), 1)}\\,\\% detecta el choque; con la corrección, el "
+        f"{fmt(ok(por['corregido']), 1)}\\,\\%. Los casos de prueba normales no la mostraban porque en ellos Bomberman "
+        "llevaba varios turnos quieto: la copia vieja y la nueva coincidían.")
     fig, ax = plt.subplots(figsize=(6.6, 2.1))
-    etiquetas = ["Código PR #21", "Código PR #21 + retardo 2 ms", "Corregido (main) + retardo 2 ms"]
+    etiquetas = ["Versión anterior", "Versión anterior + retardo 2 ms", "Versión final + retardo 2 ms"]
     vals = [ok(por["real"]), ok(por["real+amp"]), ok(por["corregido"])]
     colores = [BUG, BUG, OK]
     ys = [2, 1, 0]
@@ -694,9 +829,9 @@ def familia7():
                 filas = list(csv.DictReader(fh))
             datos[(esc, ver)] = filas
     fig, axs = plt.subplots(1, 2, figsize=(7.2, 2.5), sharey=True)
-    titulos = {"e7a": "(a) archivo de 300 líneas", "e7b": "(b) Bomberman sin instrucciones"}
+    titulos = {"e7a": "(i) archivo de 300 líneas", "e7b": "(ii) Bomberman sin instrucciones"}
     for ax, esc in zip(axs, ("e7a", "e7b")):
-        for ver, color, nombre in (("ahora", OK, "main actual"), ("antes", BUG, "commit fb8f114")):
+        for ver, color, nombre in (("ahora", OK, "versión final"), ("antes", BUG, "versión anterior")):
             filas = datos[(esc, ver)]
             n = len(filas)
             cerr = sorted(float(r["tiempo_s"]) for r in filas if r["valor"] != "colgado")
