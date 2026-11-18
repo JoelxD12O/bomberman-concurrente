@@ -41,5 +41,6 @@ int is_game_over(shared_t *sh);
 /* main.c — modo -r (bonus P4) */
 extern int hay_renderer;   /* 1 con -r: P0 espera a que P4 dibuje cada tick */
 extern int fd_terminal;    /* la terminal original; con -r, stdout va a partida.log */
+extern int modo_grafico;   /* 1 con -g: P4 dibuja en una ventana 2D (SDL) */
 
 #endif

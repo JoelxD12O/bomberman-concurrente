@@ -6,6 +6,10 @@ BIN     = bomberman
 $(BIN): $(SRC) include/*.h
 	$(CC) $(CFLAGS) -o $@ $(SRC)
 
+# Versión con ventana 2D (opción -g). Necesita SDL2 y SDL2_ttf instalados.
+sdl: $(SRC) include/*.h
+	$(CC) $(CFLAGS) -DUSAR_SDL -o $(BIN) $(SRC) $$(sdl2-config --cflags --libs) -lSDL2_ttf -lm
+
 # Detecta race conditions entre hilos (usar en la semana de integración)
 tsan: $(SRC) include/*.h
 	$(CC) $(CFLAGS) -fsanitize=thread -o $(BIN)_tsan $(SRC)
@@ -21,4 +25,4 @@ test: src/parser.c tests/unit/test_parser.c
 clean:
 	rm -f $(BIN) $(BIN)_tsan test_parser
 
-.PHONY: tsan run test clean
+.PHONY: sdl tsan run test clean

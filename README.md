@@ -53,7 +53,7 @@ grep -n "TODO(Abigail)" src/*.c      # cambia el nombre por el tuyo
    ```
    Tiene que mostrar `[P0] tick 1 -> P1`, `[P1] turno...` y el mapa varias veces.
 
-   Uso completo: `./bomberman <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r]`. Las prioridades son opcionales (por defecto 20 y 30, sección 9):
+   Uso completo: `./bomberman <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r | -g]`. `-r` dibuja el tablero en la terminal y `-g` en una ventana 2D (ver "Ventana 2D" más abajo). Las prioridades son opcionales (por defecto 20 y 30, sección 9):
    ```bash
    ./bomberman tests/caso_ejemplo 9 40 30              # ejemplo 8.5 del enunciado
    ./bomberman tests/caso_ejemplo 12 30 30             # prioridades iguales: se alternan
@@ -61,6 +61,16 @@ grep -n "TODO(Abigail)" src/*.c      # cambia el nombre por el tuyo
    ./bomberman tests/caso_derrota 20 40 30             # fin por derrota
    ./bomberman tests/caso_sin_movimientos 30 30 30     # fin por falta de movimientos
    ```
+
+   **Ventana 2D (`-g`, bonus P4).** Se compila con `make sdl` (necesita SDL2 y SDL2_ttf). En Windows 11, desde PowerShell, con Docker Desktop abierto (la ventana se muestra gracias a WSLg):
+   ```powershell
+   docker build -t bomberman-sdl -f docs/Dockerfile.sdl .
+   docker run --rm -it -v ${PWD}:/app -w /app `
+     -v /run/desktop/mnt/host/wslg/.X11-unix:/tmp/.X11-unix -v /run/desktop/mnt/host/wslg:/mnt/wslg `
+     -e DISPLAY=:0 -e WAYLAND_DISPLAY=wayland-0 -e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir `
+     bomberman-sdl bash -c "make sdl && ./bomberman tests/caso_demo 16 40 30 -g"
+   ```
+   Si se compila con `make` normal, `-g` dibuja en la terminal como `-r`. Los videos de cada caso están en `docs/presentacion/demos/2d/` y `docs/presentacion/demos/terminal/`.
 3. **Ejemplos para entender la idea** (5 minutos, en `ejemplos/`):
    ```bash
    cd ejemplos

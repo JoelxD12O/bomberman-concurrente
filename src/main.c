@@ -26,6 +26,7 @@
 /* Modo -r (bonus P4). Se declaran en procs.h. */
 int hay_renderer = 0;
 int fd_terminal  = 1;    /* 1 = la salida estándar (la terminal) */
+int modo_grafico = 0;    /* 1 con -g: ventana 2D en vez de la terminal */
 
 /* Crea los semáforos y mutex. El segundo argumento de sem_init en 1 significa
  * "este semáforo lo van a usar varios PROCESOS", no solo hilos. */
@@ -92,7 +93,7 @@ int is_game_over(shared_t *sh)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        printf("uso: %s <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r]\n", argv[0]);
+        printf("uso: %s <carpeta_del_caso> <max_ticks> [prio_bomber prio_enemy] [-r | -g]\n", argv[0]);
         return 1;
     }
 
@@ -108,7 +109,7 @@ int main(int argc, char **argv)
     int prio_bomber = 20;
     int prio_enemy  = 30;
     int siguiente   = 3;     /* posición del siguiente argumento por revisar */
-    if (argc >= 5 && strcmp(argv[3], "-r") != 0) {
+    if (argc >= 5 && strcmp(argv[3], "-r") != 0 && strcmp(argv[3], "-g") != 0) {
         prio_bomber = atoi(argv[3]);
         prio_enemy  = atoi(argv[4]);
         siguiente   = 5;
@@ -119,9 +120,14 @@ int main(int argc, char **argv)
         }
     }
 
+    /* -r dibuja en la terminal; -g en una ventana 2D. Las dos usan P4. */
     int usar_renderer = 0;
     if (argc > siguiente && strcmp(argv[siguiente], "-r") == 0) {
         usar_renderer = 1;
+    }
+    if (argc > siguiente && strcmp(argv[siguiente], "-g") == 0) {
+        usar_renderer = 1;
+        modo_grafico  = 1;
     }
 
     /* Que printf escriba cada línea al momento; así los mensajes de los

@@ -2,6 +2,7 @@
  * renderer.c — P4: dibuja el juego en la terminal (BONUS, sección 3).
  *
  * Se activa con -r:   ./bomberman tests/caso_demo 16 40 30 -r
+ * Con -g dibuja en una ventana 2D (ver renderer_sdl.c); la sincronización es la misma.
  *
  * 1) Sincronizado con el tick
  *    Al terminar cada tick, P0 hace sem_post(sem_render) y se queda esperando
@@ -24,6 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "procs.h"
+#include "foto.h"
 
 #define PAUSA_MS 600   /* cuánto se ve cada tick en pantalla */
 
@@ -36,20 +38,9 @@
 #define BOMBERMAN "\033[44;97;1m P" RESET         /* fondo azul       */
 #define CHOQUE    "\033[41;97;1m!!" RESET         /* enemigo sobre Bomberman */
 
-/* Copia del estado del juego en un tick */
-typedef struct {
-    char mapa[MAX_Y][MAX_X];
-    int  filas, cols;
-    int  bomb_x[MAX_BOMBS], bomb_y[MAX_BOMBS], bomb_timer[MAX_BOMBS];
-    int  bomber_x, bomber_y;
-    int  enemy_x[NUM_ENEMIES], enemy_y[NUM_ENEMIES], enemy_alive[NUM_ENEMIES];
-    int  prio_bomber, prio_enemy;
-    int  tick, max_ticks, vidas, score, enemigos_vivos;
-    int  game_over, resultado;
-} foto_t;
-
-/* Copia todo lo que hace falta, tomando cada mutex en el orden de shared.h */
-static void tomar_foto(shared_t *sh, foto_t *f)
+/* Copia todo lo que hace falta, tomando cada mutex en el orden de shared.h.
+ * foto_t está en foto.h porque también la usa renderer_sdl.c */
+void tomar_foto(shared_t *sh, foto_t *f)
 {
     pthread_mutex_lock(&sh->map_mtx);
     f->filas = sh->rows;
@@ -94,7 +85,7 @@ static void tomar_foto(shared_t *sh, foto_t *f)
 }
 
 /* ¿Hay una bomba activa en (x, y)? Devuelve su temporizador, o -1 si no hay */
-static int timer_de_bomba(foto_t *f, int x, int y)
+int timer_de_bomba(foto_t *f, int x, int y)
 {
     if (f->mapa[y][x] != CELL_BOMB) {
         return -1;
@@ -199,6 +190,12 @@ static void dibujar(FILE *pantalla, foto_t *f)
 
 void run_renderer(shared_t *sh)
 {
+    /* Con -g se dibuja en una ventana 2D (renderer_sdl.c). Si el programa se
+     * compiló sin SDL, run_renderer_sdl devuelve 0 y se sigue con la terminal. */
+    if (modo_grafico && run_renderer_sdl(sh)) {
+        return;
+    }
+
     /* La terminal original (main.c la guardó antes de mandar stdout a partida.log) */
     FILE *pantalla = fdopen(fd_terminal, "w");
     if (pantalla == NULL) {
