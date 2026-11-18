@@ -3,6 +3,7 @@
 - `informe.tex` / `informe.pdf`: el informe.
 - `figuras/`: figuras (PDF), `arquitectura.tex` (TikZ) y los números generados (`numeros.tex`, `tabla_juego.tex`).
 - `experimentos/`: un programa C por familia de carreras (`-DBUGGY` = versión sin la primitiva), los datos (`datos/*.csv`) y los scripts.
+- `experimentos/anteriores/`: experimentos de la versión anterior del informe. Su `correr.sh` y `casos/archivo_largo` generaron los datos de la Familia 6c (juego real antes y después de la integración).
 
 ## Cómo regenerar todo
 
@@ -23,4 +24,4 @@ python graficos.py                  # figuras/*.pdf y figuras/numeros.tex
 cd .. && pdflatex informe.tex && pdflatex informe.tex
 ```
 
-Nota: el experimento 2c aplica sus parches sobre una copia del `src/enemy.c` del PR #21 (antes de la corrección del PR #26). La familia 7 usa los datos de `experimentos/correr.sh` (raíz del repositorio), copiados como `datos/e7*.csv`.
+Nota: el experimento 2c aplica sus parches sobre una copia del `src/enemy.c` del PR #21 (antes de la corrección del PR #26). La Familia 6c usa los datos de `experimentos/anteriores/correr.sh`, copiados como `datos/e7*.csv`.

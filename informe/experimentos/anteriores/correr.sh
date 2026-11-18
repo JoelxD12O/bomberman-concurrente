@@ -1,6 +1,6 @@
 #!/bin/bash
-# Corre los experimentos del informe y guarda los resultados en experimentos/datos/*.csv
-# Uso (dentro de Docker, en la carpeta del proyecto):  bash experimentos/correr.sh
+# Corre los experimentos del informe y guarda los resultados en informe/experimentos/anteriores/datos/*.csv
+# Uso (dentro de Docker, en la carpeta del proyecto):  bash informe/experimentos/anteriores/correr.sh
 # Cada fila: iteracion,valor,tiempo_s,cpu_pct,mem_kb   (tiempo/CPU/memoria con /usr/bin/time -v)
 cd "$(dirname "$0")"
 mkdir -p bin datos
@@ -28,12 +28,12 @@ gcc $CF -o bin/e3_con e3_orden.c;   gcc $CF -DSIN_ORDEN    -o bin/e3_sin e3_orde
 gcc $CF -o bin/e4_con e4_deadlock.c; gcc $CF -DSIN_ORDEN   -o bin/e4_sin e4_deadlock.c
 
 # Experimento 5: el juego REAL en dos commits del repositorio
-#   antes = fb8f114 (merge del PR #22, antes del arreglo de cierre del PR #26)
+#   antes = 70a9e4a (merge del PR #22, antes del arreglo de cierre del PR #26)
 #   ahora = el código actual
 git config --global --add safe.directory '*' 2>/dev/null
-rm -rf /tmp/antes && mkdir -p /tmp/antes && git -C .. archive fb8f114 | tar -x -C /tmp/antes
+rm -rf /tmp/antes && mkdir -p /tmp/antes && git -C ../../.. archive 70a9e4a | tar -x -C /tmp/antes
 make -s -C /tmp/antes >/dev/null 2>&1 && cp /tmp/antes/bomberman bin/juego_antes
-rm -rf /tmp/ahora && mkdir -p /tmp/ahora && cp -r ../src ../include ../Makefile /tmp/ahora/
+rm -rf /tmp/ahora && mkdir -p /tmp/ahora && cp -r ../../../src ../../../include ../../../Makefile /tmp/ahora/
 make -s -C /tmp/ahora >/dev/null 2>&1 && cp /tmp/ahora/bomberman bin/juego_ahora
 
 echo "== experimento 1: cola de P1 (500 x 2)"
@@ -47,6 +47,6 @@ medir datos/e4_con.csv 50 1 bin/e4_con;   medir datos/e4_sin.csv 50 1 bin/e4_sin
 echo "== experimento 5: cierre del juego real (30 x 2 escenarios x 2 versiones, timeout 2 s)"
 medir datos/e5a_ahora.csv 30 2 bin/juego_ahora casos/archivo_largo 20 20 30
 medir datos/e5a_antes.csv 30 2 bin/juego_antes casos/archivo_largo 20 20 30
-medir datos/e5b_ahora.csv 30 2 bin/juego_ahora ../tests/caso_sin_movimientos 30 40 30
-medir datos/e5b_antes.csv 30 2 bin/juego_antes ../tests/caso_sin_movimientos 30 40 30
+medir datos/e5b_ahora.csv 30 2 bin/juego_ahora ../../../tests/caso_sin_movimientos 30 40 30
+medir datos/e5b_antes.csv 30 2 bin/juego_antes ../../../tests/caso_sin_movimientos 30 40 30
 echo "== listo"

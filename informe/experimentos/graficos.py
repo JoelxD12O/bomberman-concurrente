@@ -822,7 +822,7 @@ def tracker():
 
 
 def familia7():
-    """Juego real completo antes (commit fb8f114) y despues de las correcciones de integracion."""
+    """Juego real completo antes (commit 70a9e4a) y despues de las correcciones de integracion."""
     import csv
     datos = {}
     for esc in ("e7a", "e7b"):
