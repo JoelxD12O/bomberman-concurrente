@@ -222,9 +222,9 @@ La Figura~\ref{fig:turnos} se construyó con la salida real del programa en tres
 \end{figure}
 
 % =============================================================================
-\section{Experimentación inicial}
+\section{Metodología experimental}
 
-\subsection{Metodología de medición}
+\subsection{Protocolo de medición}
 
 Durante el desarrollo (cinco procesos y hasta dieciocho hilos sobre una misma memoria compartida) nos encontramos con varias race conditions. Para demostrar cada una de forma objetiva seguimos el mismo protocolo experimental.
 
@@ -247,14 +247,15 @@ Antes de aislar cada race condition verificamos que el sistema completo sea dete
 
 \begin{table}[H]
 \centering\small
-\begin{tabular}{@{}lcccclrr@{}}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lcccclrrr@{}}
 \toprule
-\textbf{Caso} & \textbf{máx.} & \textbf{prio.} & \textbf{corridas} & \textbf{salidas} & \textbf{resultado final} & \textbf{ms} & \textbf{MB}\\
- & \textbf{ticks} & \textbf{P1/P2} & & \textbf{distintas} & \textbf{(res./tick/vidas/score)} & & \\
+\textbf{Caso} & \textbf{máx.} & \textbf{prio.} & \textbf{corridas} & \textbf{salidas} & \textbf{resultado final} & \textbf{ms} & \textbf{CPU} & \textbf{MB}\\
+ & \textbf{ticks} & \textbf{P1/P2} & & \textbf{distintas} & \textbf{(res./tick/vidas/score)} & & \textbf{(\%)} & \\
 \midrule
 \input{figuras/tabla_juego.tex}
 \end{tabular}
-\caption{Determinismo del juego completo: número de salidas distintas entre todas las corridas de cada caso. El resultado final es la última línea del programa; resultado 1 = máximo de ticks, 2 = derrota, 3 = victoria, 4 = sin movimientos. Tiempo medio por corrida (ms) y memoria máxima (MB).}
+\caption{Determinismo del juego completo: número de salidas distintas entre todas las corridas de cada caso. El resultado final es la última línea del programa; resultado 1 = máximo de ticks, 2 = derrota, 3 = victoria, 4 = sin movimientos. Tiempo medio por corrida (ms), uso medio de CPU (\%) y memoria máxima (MB).}
 \label{tab:juego}
 \end{table}
 
@@ -605,6 +606,41 @@ La Tabla~\ref{tab:corresp} relaciona los diez escenarios de prueba del proyecto 
 
 % =============================================================================
 \section{Conclusiones}
+
+\subsection{Resumen de los experimentos}
+
+La Tabla~\ref{tab:resumen} reúne todas las pruebas realizadas: cuántas veces se corrió cada una, el resultado con y sin la solución y los recursos consumidos.
+
+\begin{table}[!t]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}Xr>{\raggedright\arraybackslash}p{2.1cm}>{\raggedright\arraybackslash}p{1.9cm}ccr@{}}
+\toprule
+\textbf{Experimento (qué se mide) y solución} & \textbf{Corridas} & \textbf{Con falla} & \textbf{Corregido} & \textbf{Tiempo (s)} & \textbf{CPU (\%)} & \textbf{Mem.\ (KB)}\\
+ & & & & \textbf{falla / corr.} & \textbf{falla / corr.} & \\
+\midrule
+\addlinespace
+1 · Vidas (descuentos perdidos)\newline\textit{Solución: P0 único escritor de las vidas} & $2\times\NunoN$ & \NunoBugMediaPct\,\% perdidos & 0 & \NunoBugTiempo{} / \NunoOkTiempo & \NunoBugCpu{} / \NunoOkCpu & \NunoOkMem\\ \addlinespace
+2a · Barrera (turnos con lectura sucia)\newline\textit{Solución: barrera con semáforo contador} & $2\times\NdosN$ & \NdosBugMedia{} de 200 & 0 & \NdosBugTiempo{} / \NdosOkTiempo & \NdosBugCpu{} / \NdosOkCpu & \NdosOkMem\\ \addlinespace
+2b · Equidad (desbalance de turnos)\newline\textit{Solución: un semáforo por enemigo} & $2\times\NequiN$ & \NequiBugMedia{} turnos & 0 & \NequiBugTiempo{} / \NequiOkTiempo & \NequiBugCpu{} / \NequiOkCpu & \NequiOkMem\\ \addlinespace
+2c · Rastreador (choques perdidos)\newline\textit{Solución: rastreador antes del detector} & $3\times\NtrackN$ & \NtrackRealPierde\,\% & 0\,\% & --- & --- & ---\\ \addlinespace
+3 · Fases de P3 (bombas fuera de $t+3$)\newline\textit{Solución: posta: temporizador y luego explosión} & $2\times\NtresN$ & \NtresBugMedia{} por corrida & 0 & \NtresBugTiempo{} / \NtresOkTiempo & \NtresBugCpu{} / \NtresOkCpu & \NtresOkMem\\ \addlinespace
+4 · Buzones (lecturas rotas)\newline\textit{Solución: mutex del buzón en ambos lados} & $2\times\NcuatroN$ & \NcuatroBugMedia{} por corrida & 0 & \NcuatroBugTiempo{} / \NcuatroOkTiempo & \NcuatroBugCpu{} / \NcuatroOkCpu & \NcuatroOkMem\\ \addlinespace
+5 · Cola de P1 (instrucciones perdidas)\newline\textit{Solución: semáforo de espacios libres} & $2\times\NcincoN$ & \NcincoBugMediaPct\,\% perdidas & 0 & \NcincoBugTiempo{} / \NcincoOkTiempo & \NcincoBugCpu{} / \NcincoOkCpu & \NcincoOkMem\\ \addlinespace
+6a · Cierre (corridas que terminan)\newline\textit{Solución: despertar a todos antes de esperarlos} & $2\times\NseisAN$ & \NseisABugCierra\,\% & \NseisAOkCierra\,\% & \NseisABugTiempo{} / \NseisAOkTiempo & \NseisABugCpu{} / \NseisAOkCpu & \NseisAOkMem\\ \addlinespace
+6b · Orden de mutex (corridas que terminan)\newline\textit{Solución: mismo orden de mutex en todos} & $2\times\NseisBN$ & \NseisBBugCierra\,\% & \NseisBOkCierra\,\% & \NseisBBugTiempo{} / \NseisBOkTiempo & \NseisBBugCpu{} / \NseisBOkCpu & \NseisBOkMem\\ \addlinespace
+6c · Juego real (partidas que terminan)\newline\textit{Solución: despertar al lector; responder sin instrucciones} & $4\times\NsieteN$ & \NsieteAAntesCierra\,\% & \NsieteAAhoraCierra\,\% & \NsieteAAntesTiempo{} / \NsieteAAhoraTiempo & \NsieteAAntesCpu{} / \NsieteAAhoraCpu & \NsieteAAhoraMem\\
+\midrule
+Validación del juego (salidas distintas)\newline\textit{Solución: todas las anteriores} & \NjuegoTotal & --- & 1 por caso & \NjuegoTiempo & \NjuegoCpu & \NjuegoMem\\
+\midrule
+\textbf{Total} & \textbf{9\,420} & & & & & \\
+\bottomrule
+\end{tabularx}
+\caption{Resumen de todos los experimentos: el problema que mide cada uno, cómo se solucionó y su costo. ``Corridas'' cuenta ambas versiones (con falla y corregida); en 2c son tres variantes y en 6c dos escenarios. En 6c, tiempo y CPU corresponden al escenario (i). La memoria es la máxima de la versión corregida. CPU medida con \cod{/usr/bin/time}: 100\,\% equivale a un núcleo completo, más de 100\,\% indica varios núcleos trabajando a la vez y cerca de 0\,\% indica procesos dormidos esperando un semáforo.}
+\label{tab:resumen}
+\end{table}
+
+En total se ejecutaron 9\,420 corridas. La tabla confirma lo que se vio familia por familia: en todas las pruebas la solución pasa de un resultado incorrecto o un cuelgue a un resultado correcto el 100\,\% de las veces, y su costo es pequeño. La memoria no cambia (menos de 2.1~MB en todos los casos); el tiempo solo sube en las familias 2b, 4 y 5, donde los hilos pasan a turnarse, y aun así es de décimas de segundo para cientos de miles de operaciones. Los cuelgues (6a, 6b y 6c) se reconocen por usar casi 0\,\% de CPU: los procesos están dormidos esperando una señal que nunca llega.
 
 \subsection{Qué se construyó}
 

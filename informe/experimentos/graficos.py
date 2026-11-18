@@ -746,18 +746,23 @@ def juego():
         hashes = {r[2] for r in rs}
         t = st.mean(float(r[3]) for r in rs)
         m = max(float(r[5]) for r in rs)
-        filas.append((k, len(rs), len(hashes), t, m, fin.get(k, "")))
+        c = st.mean(float(r[4]) for r in rs)
+        filas.append((k, len(rs), len(hashes), t, m, fin.get(k, ""), c))
     with open(FIG / "tabla_juego.tex", "w", encoding="utf-8") as out:
-        for (k, n, h, t, m, fn) in filas:
+        for (k, n, h, t, m, fn, c) in filas:
             caso, mx, pb, pe = k.split("_")[:-3], *k.split("_")[-3:]
             nombre = "\\_".join(k.split("_")[:-3])
             g = re.search(r"resultado=?(\d+) tick=?(\d+) vidas=?(\d+) score=?(\d+)", fn)
             res = " / ".join(g.groups()) if g else fn
             ms = "$<$10" if t * 1000 < 10 else f"{t*1000:.0f}"
-            out.write(f"\\texttt{{{nombre}}} & {mx} & {pb}/{pe} & {n} & {h} & {res} & {ms} & {m/1024:.1f} \\\\\n")
+            out.write(f"\\texttt{{{nombre}}} & {mx} & {pb}/{pe} & {n} & {h} & {res} & {ms} & {c:.0f} & {m/1024:.1f} \\\\\n")
         out.write("\\bottomrule\n")
     NUM["juegoN"] = fmt(filas[0][1])
     total = sum(f[1] for f in filas)
+    NUM["juegoTotal"] = fmt(total)
+    NUM["juegoTiempo"] = f"{st.mean(float(r[3]) for r in f):.3f}"
+    NUM["juegoCpu"] = fmt(st.mean(float(r[4]) for r in f))
+    NUM["juegoMem"] = fmt(max(float(r[5]) for r in f))
     malos = [f for f in filas if f[2] != 1]
     if not malos:
         NUM["JuegoTexto"] = (
