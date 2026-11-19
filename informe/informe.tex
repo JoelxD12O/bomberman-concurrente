@@ -125,7 +125,7 @@ De acuerdo con los objetivos del proyecto se diseñó una arquitectura de cuatro
 
 \subsection{Esquema arquitectónico del sistema}
 
-Para dar una visión directa de la solución multiproceso se diseñó un esquema que muestra cómo los procesos P0--P4 interactúan a través del núcleo central de memoria compartida (Figura~\ref{fig:arq}). Antes de presentarlo, la Tabla~\ref{tab:guia} resume la función de cada proceso, el recurso compartido que usa y el mecanismo POSIX que garantiza su sincronización.
+La Tabla~\ref{tab:guia} resume la función de cada proceso, el recurso compartido que usa y el mecanismo POSIX que garantiza su sincronización.
 
 \begin{table}[!htbp]
 \centering\small
@@ -146,17 +146,8 @@ Paso 4 & P0 / P4 -- Cierre y renderizado & P0 procesa los eventos (máximo una v
 \label{tab:guia}
 \end{table}
 
-La lectura del diagrama se realiza de izquierda a derecha: primero la entrada del usuario y los archivos del caso, luego el planificador P0, después los procesos de Bomberman, enemigos y bombas, y finalmente el renderizado. Abajo está la memoria compartida, dividida por \emph{dueño}: cada grupo de variables tiene un único proceso escritor y un mutex propio. El diagrama evidencia que el sistema no permite escrituras libres sobre la memoria compartida: cada actualización crítica ocurre dentro de un turno autorizado por P0 y bajo una primitiva de sincronización específica.
-
-\afterpage{%
-\begin{landscape}
-\begin{figure}[p]
-\centering
-\resizebox{\linewidth}{!}{\input{figuras/arquitectura.tex}}
-\caption{Arquitectura operacional del sistema. Cada columna es un proceso; las flechas azules son los semáforos con que P0 habilita los turnos (P1 o P2 en la fase de acción, P3 en todos los ticks y P4 solo con \cod{-r}) y las verdes son lecturas y escrituras en la memoria compartida. Los recuadros punteados resumen las primitivas de sincronización de cada proceso.}
-\label{fig:arq}
-\end{figure}
-\end{landscape}}
+El diagrama de la arquitectura está disponible en Lucidchart:\\
+\small\url{https://lucid.app/lucidchart/bda401f7-468f-4d61-9473-9bb9eaf8e5a3/edit?invitationId=inv_78b5aac2-7dc5-4e20-934a-6ffeef8181b0&page=0_0#}\normalsize
 
 \subsection{Flujo lógico y sincronización en cada tick}
 
